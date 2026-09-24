@@ -1824,3 +1824,63 @@ kbd {
   border: 1px solid var(--line-2);
   font-size: 13px;
 }
+
+/* ---------- responsive bits ---------- */
+
+.connected-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3ddc84;
+  box-shadow: 0 0 0 3px rgba(61, 220, 132, 0.15);
+}
+.connect-head {
+  flex-wrap: wrap;
+}
+.connect-head > div {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+.copy-row {
+  flex-wrap: wrap;
+}
+.copy-row .text-input {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.code-row {
+  flex-wrap: wrap;
+}
+
+/* On narrow windows the right panel floats over the page instead of squeezing it. */
+@media (max-width: 1180px) {
+  .queue {
+    position: fixed;
+    top: 40px;
+    right: 8px;
+    bottom: 96px;
+    z-index: 40;
+    margin: 0;
+    box-shadow: -12px 0 40px rgba(0, 0, 0, 0.55);
+    border: 1px solid var(--line-2);
+  }
+  .hero {
+    gap: 20px;
+  }
+  .hero-art {
+    width: 140px;
+    height: 140px;
+  }
+  .hero h1,
+  .h1-input {
+    font-size: 34px;
+  }
+}
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 200px minmax(0, 1fr) auto;
+  }
+  .hero-art {
+    display: none;
+  }
+}

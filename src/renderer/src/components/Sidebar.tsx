@@ -3,6 +3,7 @@ import { cls } from '../lib/format'
 import { createPlaylist, deletePlaylist, lib } from '../lib/library'
 import { useNav } from '../lib/nav'
 import { playTracks } from '../lib/player'
+import { accountStore } from '../lib/accounts'
 import { isConnected, SOURCE_ORDER, SOURCES, useConnections } from '../lib/sources'
 import { useStore } from '../lib/store'
 import { openMenu } from '../lib/ui'
@@ -16,6 +17,7 @@ export function Sidebar() {
   const count = useStore(lib, (s) => s.tracks.length)
   const scan = useStore(lib, (s) => s.scan)
   useConnections()
+  const accounts = useStore(accountStore, (s) => s.accounts)
 
   const item = (active: boolean, icon: ReactNode, label: string, onClick: () => void, extra?: ReactNode) => (
     <button className={cls('side-item', active && 'active')} onClick={onClick}>
@@ -45,9 +47,11 @@ export function Sidebar() {
               () => nav.go({ kind: 'source', source: s }),
               s === 'local' ? (
                 <span className="count">{count.toLocaleString()}</span>
-              ) : isConnected(s) ? undefined : (
+              ) : accounts[s] && !isConnected(s) ? (
                 <span className="pill">Set up</span>
-              ),
+              ) : accounts[s]?.connected ? (
+                <span className="connected-dot" title={`Connected${accounts[s]?.userName ? ` as ${accounts[s]?.userName}` : ''}`} />
+              ) : undefined,
             )}
           </div>
         ))}

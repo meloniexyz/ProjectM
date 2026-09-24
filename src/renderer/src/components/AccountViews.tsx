@@ -118,6 +118,7 @@ function SoundCloudProfile() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const connect = async () => {
+    if (!value.trim()) return setError('Type your SoundCloud profile link or username first.')
     setBusy(true)
     setError(null)
     try {
@@ -145,9 +146,9 @@ function SoundCloudProfile() {
           placeholder="Your profile link, e.g. soundcloud.com/yourname (or just yourname)"
           spellCheck={false}
           onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && value.trim() && !busy && connect()}
+          onKeyDown={(e) => e.key === 'Enter' && !busy && connect()}
         />
-        <button className="btn primary" disabled={busy || !value.trim()} onClick={connect}>
+        <button className="btn primary" disabled={busy} onClick={connect}>
           {busy ? <RefreshIcon size={14} className="spin" /> : null} Connect
         </button>
       </div>

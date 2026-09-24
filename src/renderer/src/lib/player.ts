@@ -30,6 +30,8 @@ export interface PlayerState {
 }
 
 const STORAGE_KEY = 'projectm.player'
+/** where to continue the restored song from, on its first play after launch */
+let resumeAt = 0
 let keySeq = 1
 const wrap = (tracks: Track[]): QueueItem[] => tracks.map((track) => ({ key: keySeq++, track }))
 
@@ -55,6 +57,8 @@ function restore(): PlayerState {
       s.index = Math.min(saved.index ?? -1, s.queue.length - 1)
       s.duration = s.queue[s.index]?.track.duration ?? 0
       s.volume = saved.volume ?? s.volume
+      s.position = Math.max(0, saved.position ?? 0)
+      resumeAt = s.position > 2 ? s.position : 0
       s.muted = !!saved.muted
       s.shuffle = !!saved.shuffle
       s.repeat = saved.repeat ?? 'off'
@@ -87,6 +91,7 @@ function save() {
       JSON.stringify({
         queue: state.queue.map((q) => q.track),
         index: state.index,
+        position: Math.round(state.position),
         volume: state.volume,
         muted: state.muted,
         shuffle: state.shuffle,
@@ -97,6 +102,10 @@ function save() {
     // storage full: not critical
   }
 }
+
+// keep the saved position fresh while playing, and on close
+setInterval(() => state.playing && save(), 5000)
+window.addEventListener('beforeunload', save)
 
 const subscribe = (l: () => void) => {
   listeners.add(l)
@@ -188,7 +197,9 @@ async function load(autoplay: boolean) {
     return
   }
   loadedKey = item.key
-  emit({ position: 0, duration: item.track.duration, error: null, buffering: autoplay, via: null })
+  const startAt = resumeAt
+  resumeAt = 0
+  emit({ position: startAt, duration: item.track.duration, error: null, buffering: autoplay, via: null })
   setMediaSession(item.track)
   if (autoplay) recordPlay(item.track)
 
@@ -202,7 +213,7 @@ async function load(autoplay: boolean) {
       return
     }
     if (Date.now() < spotifyUnavailableUntil) return playFallback(item.track, seq)
-    return spotifyStart(item.track, seq)
+    return spotifyStart(item.track, seq, startAt)
   }
   if (engine === 'spotify') spotifyStop()
   engine = 'audio'
@@ -215,6 +226,7 @@ async function load(autoplay: boolean) {
     return
   }
   if (seq !== loadSeq || !(await attach(stream, seq, item.track))) return
+  if (startAt) audio.currentTime = startAt
   if (autoplay) audio.play().catch(() => {}) // real failures arrive via the 'error' event
 }
 

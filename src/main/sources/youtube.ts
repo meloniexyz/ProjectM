@@ -14,7 +14,31 @@ const CHUNK = 8 * 1024 * 1024
 const OAUTH_KEY = 'youtube.oauth'
 
 /** Stored sign-in: YouTube's OAuth tokens, plus the user's own Google client if they used one. */
-type SavedLogin = OAuth2Tokens & { client?: { client_id: string; client_secret: string } }
+type SavedLogin = OAuth2Tokens & {
+  client?: { client_id: string; client_secret: string }
+  /** which API accepted this login: YouTube Music's own, or the official YouTube Data API */
+  mode?: 'music' | 'dataapi'
+}
+
+interface DataApiItem {
+  snippet?: {
+    title?: string
+    videoOwnerChannelTitle?: string
+    channelTitle?: string
+    resourceId?: { videoId?: string }
+    thumbnails?: Record<string, { url: string }>
+  }
+  contentDetails?: { videoId?: string; itemCount?: number }
+  id?: string
+}
+
+/** "PT3M25S" -> 205 */
+function isoSeconds(iso = '') {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
+  return m ? Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0) : 0
+}
+const bestThumb = (t?: Record<string, { url: string }>) =>
+  t?.maxres?.url ?? t?.high?.url ?? t?.medium?.url ?? t?.default?.url
 
 export interface DeviceCode {
   code: string
@@ -151,7 +175,9 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
       const yt = await Innertube.create({ retrieve_player: false })
       // tokens refresh themselves hourly; keep the newest ones
       yt.session.on('update-credentials', ({ credentials }) => {
-        if (credentials?.access_token) void this.save({ ...(credentials as OAuth2Tokens), client: saved.client })
+        if (credentials?.access_token) {
+          void this.save({ ...(credentials as OAuth2Tokens), client: saved.client, mode: saved.mode })
+        }
       })
       await yt.session.signIn(saved)
       return yt
@@ -190,28 +216,41 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     })
     if (attempt !== this.loginAttempt) throw new Error('Sign-in was cancelled')
 
-    await this.save({ ...tokens, client })
-    this.authedClient = null
-    try {
-      const authed = await this.authed()
-      // prove the music library is reachable with this sign-in before calling it connected
-      await authed.music.getPlaylist('LM')
+    // Prove the library is reachable before calling it connected. YouTube Music's own API is
+    // tried first; if it refuses this kind of login, the official YouTube Data API often accepts it.
+    const reasons: string[] = []
+    for (const mode of ['music', 'dataapi'] as const) {
+      await this.save({ ...tokens, client, mode })
+      this.authedClient = null
       try {
-        const info = await authed.account.getInfo()
-        const first = (info.contents?.contents as unknown as { account_name?: { toString(): string } }[] | undefined)?.[0]
-        this.userName = first?.account_name?.toString() ?? null
-      } catch {
-        // name is cosmetic
+        if (mode === 'music') await (await this.authed()).music.getPlaylist('LM')
+        else {
+          const me = await this.dataApi<{ items?: { snippet?: { title?: string } }[] }>('/channels', {
+            part: 'snippet',
+            mine: 'true',
+          })
+          this.userName = me.items?.[0]?.snippet?.title ?? null
+        }
+        if (mode === 'music') {
+          try {
+            const info = await (await this.authed()).account.getInfo()
+            const first = (info.contents?.contents as unknown as { account_name?: { toString(): string } }[] | undefined)?.[0]
+            this.userName = first?.account_name?.toString() ?? null
+          } catch {
+            // name is cosmetic
+          }
+        }
+        return this.status()
+      } catch (err) {
+        reasons.push(`${mode === 'music' ? 'YouTube Music' : 'YouTube Data API'}: ${(err as Error).message}`)
       }
-    } catch (err) {
-      await this.logout()
-      throw new Error(
-        custom
-          ? `YouTube Music refused this sign-in (${(err as Error).message}).`
-          : `NEEDS_CLIENT: YouTube Music didn't accept the TV sign-in (${(err as Error).message}).`,
-      )
     }
-    return this.status()
+    await this.logout()
+    throw new Error(
+      custom
+        ? `YouTube refused this sign-in (${reasons.join('; ')}).`
+        : `NEEDS_CLIENT: YouTube didn't accept the TV sign-in (${reasons.join('; ')}).`,
+    )
   }
 
   cancelLogin() {
@@ -228,11 +267,99 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     return this.authed()
   }
 
-  liked() {
-    return this.playlistTracks('LM') // YouTube Music's special "Liked music" playlist
+  private get usesDataApi() {
+    return this.saved()?.mode === 'dataapi'
+  }
+
+  /** Official YouTube Data API v3 call with the signed-in user's token. */
+  private async dataApi<T>(path: string, params: Record<string, string>): Promise<T> {
+    const yt = await this.authed()
+    const oauth = yt.session.oauth
+    if (oauth.shouldRefreshToken()) await oauth.refreshAccessToken()
+    const token = oauth.oauth2_tokens?.access_token
+    if (!token) throw new Error('not signed in')
+    const res = await fetch(`https://www.googleapis.com/youtube/v3${path}?${new URLSearchParams(params)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const json = (await res.json()) as T & { error?: { message?: string } }
+    if (!res.ok) throw new Error(json.error?.message?.replace(/<[^>]+>/g, '') || `HTTP ${res.status}`)
+    return json
+  }
+
+  /** Every item of a playlist through the Data API, with durations filled in. */
+  private async dataPlaylistTracks(id: string): Promise<Track[]> {
+    const items: DataApiItem[] = []
+    let pageToken = ''
+    do {
+      const page = await this.dataApi<{ items: DataApiItem[]; nextPageToken?: string }>('/playlistItems', {
+        part: 'snippet,contentDetails',
+        playlistId: id,
+        maxResults: '50',
+        ...(pageToken ? { pageToken } : {}),
+      })
+      items.push(...page.items)
+      pageToken = page.nextPageToken ?? ''
+    } while (pageToken && items.length < 2000)
+
+    const playable = items.filter((i) => {
+      const title = i.snippet?.title ?? ''
+      return (i.contentDetails?.videoId || i.snippet?.resourceId?.videoId) && !/^(deleted|private) video$/i.test(title)
+    })
+    const durations = new Map<string, number>()
+    for (let i = 0; i < playable.length; i += 50) {
+      const ids = playable.slice(i, i + 50).map((p) => p.contentDetails?.videoId ?? p.snippet!.resourceId!.videoId!)
+      const res = await this.dataApi<{ items: { id: string; contentDetails?: { duration?: string } }[] }>('/videos', {
+        part: 'contentDetails',
+        id: ids.join(','),
+      })
+      for (const v of res.items) durations.set(v.id, isoSeconds(v.contentDetails?.duration))
+    }
+    return playable.map((p) => {
+      const videoId = p.contentDetails?.videoId ?? p.snippet!.resourceId!.videoId!
+      return {
+        uid: `youtube:${videoId}`,
+        source: 'youtube' as const,
+        id: videoId,
+        title: p.snippet?.title ?? 'Untitled',
+        // music uploads come from "Artist - Topic" channels
+        artist: (p.snippet?.videoOwnerChannelTitle ?? 'Unknown Artist').replace(/\s+-\s+Topic$/, ''),
+        album: 'YouTube Music',
+        duration: durations.get(videoId) ?? 0,
+        artwork: bestThumb(p.snippet?.thumbnails),
+      }
+    })
+  }
+
+  async liked(): Promise<Track[]> {
+    if (!this.usesDataApi) return this.playlistTracks('LM') // YouTube Music's special "Liked music" playlist
+    // "LM" is liked music; older accounts may only expose "LL" (all liked videos)
+    return this.dataPlaylistTracks('LM').catch(() => this.dataPlaylistTracks('LL'))
   }
 
   async playlists(): Promise<RemotePlaylist[]> {
+    if (this.usesDataApi) {
+      const out: RemotePlaylist[] = []
+      let pageToken = ''
+      do {
+        const page = await this.dataApi<{ items: DataApiItem[]; nextPageToken?: string }>('/playlists', {
+          part: 'snippet,contentDetails',
+          mine: 'true',
+          maxResults: '50',
+          ...(pageToken ? { pageToken } : {}),
+        })
+        for (const p of page.items) {
+          out.push({
+            id: p.id!,
+            name: p.snippet?.title ?? 'Playlist',
+            artwork: bestThumb(p.snippet?.thumbnails),
+            owner: p.snippet?.channelTitle ?? '',
+            total: p.contentDetails?.itemCount ?? 0,
+          })
+        }
+        pageToken = page.nextPageToken ?? ''
+      } while (pageToken && out.length < 500)
+      return out
+    }
     const yt = await this.signedIn()
     let library = await yt.music.getLibrary()
     const filter = library.filters.find((f) => /playlist/i.test(f))
@@ -268,6 +395,7 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
   }
 
   async playlistTracks(id: string): Promise<Track[]> {
+    if (this.usesDataApi) return this.dataPlaylistTracks(id)
     const yt = await this.signedIn()
     let page = await yt.music.getPlaylist(id)
     const items: ListItem[] = [...(page.items as unknown as ListItem[])]

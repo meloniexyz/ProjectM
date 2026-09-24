@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, protocol, screen, shell } from 'electron'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { JsonFile } from './json-file'
 import { Library } from './library'
@@ -38,13 +39,25 @@ function account(id: SourceId) {
   return source
 }
 let win: BrowserWindow | null = null
+const windowState = new JsonFile<{ x?: number; y?: number; width: number; height: number; maximized?: boolean }>(
+  join(dataDir, 'window.json'),
+  { width: 1320, height: 840 },
+)
+
+/** Last window bounds, if they still fit on a connected monitor. */
+function savedBounds() {
+  const s = windowState.get()
+  if (s.x === undefined || s.y === undefined) return { width: s.width, height: s.height }
+  const area = screen.getDisplayMatching({ x: s.x, y: s.y, width: s.width, height: s.height }).workArea
+  const visible = s.x < area.x + area.width - 100 && s.x + s.width > area.x + 100 && s.y >= area.y - 10 && s.y < area.y + area.height - 100
+  return visible ? { x: s.x, y: s.y, width: s.width, height: s.height } : { width: s.width, height: s.height }
+}
 
 const BG = '#09090c'
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1320,
-    height: 840,
+    ...savedBounds(),
     minWidth: 940,
     minHeight: 600,
     show: false,
@@ -59,7 +72,20 @@ function createWindow() {
     },
   })
 
-  win.once('ready-to-show', () => win?.show())
+  win.once('ready-to-show', () => {
+    if (windowState.get().maximized) win?.maximize()
+    win?.show()
+  })
+  win.on('close', () => {
+    if (!win) return
+    // written synchronously: the app quits right after the window closes
+    const state = { ...win.getNormalBounds(), maximized: win.isMaximized() }
+    try {
+      writeFileSync(join(dataDir, 'window.json'), JSON.stringify(state))
+    } catch (err) {
+      console.error('[window] could not save size', err)
+    }
+  })
   win.on('closed', () => (win = null))
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url)
@@ -126,7 +152,7 @@ ipcMain.handle('playlists:save', (_, list: Playlist[]) => playlists.set(list))
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark'
   Menu.setApplicationMenu(null)
-  await Promise.all([library.load(), playlists.load(), spotify.load(), secrets.load()])
+  await Promise.all([library.load(), playlists.load(), spotify.load(), secrets.load(), windowState.load()])
   protocol.handle('media', (req) => handleMedia(req, library, youtube))
   createWindow()
   // Pick up files added/changed while the app was closed.
