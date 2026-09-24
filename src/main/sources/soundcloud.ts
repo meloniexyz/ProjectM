@@ -1,5 +1,6 @@
 import type { AccountStatus, RemotePlaylist, SoundCloudProfile, Track } from '../../shared/types'
 import type { Secrets } from '../secrets'
+import { bestMatch, type MatchTarget } from './match'
 import { UA, type AccountSource, type StreamInfo, type StreamingSource } from './types'
 
 const PROFILE_KEY = 'soundcloud.profile'
@@ -246,6 +247,11 @@ export class SoundCloud implements StreamingSource, AccountSource {
       .filter((t) => t.streamable !== false && t.policy !== 'BLOCK' && t.policy !== 'SNIP') // SNIP = 30s Go+ preview
       .slice(0, limit)
       .map((t) => this.toTrack(t))
+  }
+
+  /** Finds the same song on SoundCloud (second choice after YouTube Music). */
+  async match(t: MatchTarget): Promise<Track | null> {
+    return bestMatch(t, await this.search(`${t.artist.split(',')[0].trim()} ${t.title}`, 15))
   }
 
   async resolve(id: string): Promise<StreamInfo> {

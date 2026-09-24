@@ -56,7 +56,7 @@ export function NowPlaying({ onClose, onOpenQueue }: { onClose: () => void; onOp
             {via && (
               <div className="np-via">
                 <SourceBadge source={via} size={13} /> Playing from {SOURCES[via].name} because the Spotify app isn't
-                available
+                available on this PC
               </div>
             )}
           </div>

@@ -275,7 +275,7 @@ async function spotifyStart(track: Track, seq: number, positionSec = 0) {
     const e = cleanError(err)
     // No Spotify app to play through: use the same song from YouTube Music instead.
     if (/find the spotify app|no active device|device not found|NO_ACTIVE_DEVICE/i.test(e.message)) {
-      spotifyUnavailableUntil = Date.now() + 3 * 60_000 // don't wait on Spotify again for every song
+      spotifyUnavailableUntil = Date.now() + 30_000 // re-check soon, in case you open Spotify
       return playFallback(track, seq)
     }
     fail(track, e)
@@ -327,16 +327,17 @@ let fallbackNoticeShown = false
 async function playFallback(track: Track, seq: number) {
   spotifyStop()
   engine = 'audio'
-  emit({ via: 'youtube', buffering: true })
+  emit({ buffering: true })
   if (!fallbackNoticeShown) {
     fallbackNoticeShown = true
-    toast("Spotify app isn't available, so Spotify songs play from YouTube Music for now")
+    toast("Spotify app isn't available, so Spotify songs play from YouTube Music or SoundCloud")
   }
   let stream: StreamInfo
   try {
     const match = await window.api.sources.match({ title: track.title, artist: track.artist, duration: track.duration })
     if (seq !== loadSeq) return
-    if (!match) throw new Error("Spotify app isn't available and YouTube Music has no match")
+    if (!match) throw new Error("Spotify app isn't available and no match was found on YouTube Music or SoundCloud")
+    emit({ via: match.source })
     stream = await resolveStream(match)
   } catch (err) {
     if (seq === loadSeq) fail(track, cleanError(err))

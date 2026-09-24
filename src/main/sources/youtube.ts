@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { Innertube, Log, Platform, UniversalCache, type OAuth2Tokens } from 'youtubei.js'
 import type { AccountStatus, RemotePlaylist, Track } from '../../shared/types'
 import type { Secrets } from '../secrets'
+import { bestMatch, type MatchTarget } from './match'
 import { PoTokenMinter } from './potoken'
 import { UA, type AccountSource, type StreamInfo, type StreamingSource } from './types'
 
@@ -136,25 +137,6 @@ function toTrack(s: ListItem): Track | null {
     duration: s.duration?.seconds ?? 0,
     artwork: bigThumb(s.thumbnails?.[0]?.url),
   }
-}
-
-/** Lowercase words without brackets/punctuation, for fuzzy matching. */
-const words = (s: string) =>
-  s
-    .toLowerCase()
-    .replace(/\(.*?\)|\[.*?\]/g, ' ')
-    .replace(/\b(feat|ft)\b\.?/g, ' ')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-
-/** 0..1: how many words the two strings share. */
-function overlap(a: string, b: string) {
-  const wa = new Set(words(a))
-  const wb = words(b)
-  if (!wa.size || !wb.length) return 0
-  return wb.filter((w) => wa.has(w)).length / Math.max(wa.size, wb.length)
 }
 
 export class YouTubeMusic implements StreamingSource, AccountSource {
@@ -547,17 +529,8 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
   }
 
   /** Finds the same song on YouTube Music (used when a Spotify song can't play through Spotify). */
-  async match(t: { title: string; artist: string; duration: number }): Promise<Track | null> {
-    const artist = t.artist.split(',')[0].trim()
-    const candidates = await this.search(`${artist} ${t.title}`, 10)
-    let best: { track: Track; score: number } | null = null
-    for (const c of candidates) {
-      const dur = t.duration && c.duration ? Math.abs(t.duration - c.duration) : 0
-      if (dur > 15) continue
-      const score = overlap(t.title, c.title) * 2 + overlap(t.artist, c.artist) - dur / 10
-      if (!best || score > best.score) best = { track: c, score }
-    }
-    return best && best.score > 1 ? best.track : null
+  async match(t: MatchTarget): Promise<Track | null> {
+    return bestMatch(t, await this.search(`${t.artist.split(',')[0].trim()} ${t.title}`, 10))
   }
 
   // ---------- streaming ----------

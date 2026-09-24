@@ -125,7 +125,14 @@ ipcMain.handle('library:showInFolder', (_, id: string) => {
 })
 ipcMain.handle('sources:search', (_, source: SourceId, query: string) => streamingSource(source).search(query))
 ipcMain.handle('sources:resolve', (_, source: SourceId, id: string) => streamingSource(source).resolve(id))
-ipcMain.handle('sources:match', (_, t: { title: string; artist: string; duration: number }) => youtube.match(t))
+// Same song on another service, for Spotify songs when the Spotify app isn't available.
+ipcMain.handle('sources:match', async (_, t: { title: string; artist: string; duration: number }) => {
+  for (const source of [youtube, soundcloud]) {
+    const found = await source.match(t).catch(() => null)
+    if (found) return found
+  }
+  return null
+})
 ipcMain.handle('account:status', (_, s: SourceId) => account(s).status())
 ipcMain.handle('account:login', (_, s: SourceId, arg?: string) => account(s).login(arg))
 ipcMain.handle('account:cancel', () => youtube.cancelLogin())

@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import { hostname } from 'node:os'
-import { app, shell } from 'electron'
+import { shell } from 'electron'
 import { JsonFile } from '../json-file'
 import type { AccountStatus, RemotePlaylist, SpotifyPlayback, Track } from '../../shared/types'
 import type { AccountSource, StreamingSource } from './types'
@@ -308,7 +308,7 @@ export class Spotify implements StreamingSource, AccountSource {
 
   // ---------- playback (Spotify Connect) ----------
 
-  /** Finds this PC's Spotify app as a Connect device, starting it if needed. */
+  /** Finds this PC's Spotify app as a Connect device, only if it's already running. */
   private async device(): Promise<string> {
     const list = async () =>
       (await this.api<{ devices: { id: string; type: string; name: string; is_active: boolean }[] }>(
@@ -320,22 +320,10 @@ export class Spotify implements StreamingSource, AccountSource {
       ds.find((d) => d.type === 'Computer') ??
       null
 
-    let found = pick(await list())
-    if (!found) {
-      // Not installed at all: fail right away so the player can fall back without waiting.
-      if (!app.getApplicationNameForProtocol('spotify://')) {
-        throw new Error("Couldn't find the Spotify app on this PC (it isn't installed)")
-      }
-      // Start the Spotify desktop app; it registers as a Connect device after a few seconds.
-      await shell.openExternal('spotify:').catch(() => {})
-      for (let i = 0; i < 15 && !found; i++) {
-        await sleep(1000)
-        found = pick(await list())
-      }
-    }
-    if (!found) {
-      throw new Error("Couldn't find the Spotify app on this PC. Open Spotify, make sure you're logged in, then try again.")
-    }
+    // Only use Spotify if it's already open; never launch it. If it isn't running, the player
+    // plays the song from YouTube Music or SoundCloud instead.
+    const found = pick(await list())
+    if (!found) throw new Error("Couldn't find the Spotify app on this PC (it isn't open)")
     this.deviceId = found.id
     return found.id
   }
