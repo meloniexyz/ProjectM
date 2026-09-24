@@ -7,6 +7,7 @@ import { SoundCloud } from './sources/soundcloud'
 import { Spotify } from './sources/spotify'
 import type { AccountSource, StreamingSource } from './sources/types'
 import { getLyrics } from './lyrics'
+import { Secrets } from './secrets'
 import { YouTubeMusic } from './sources/youtube'
 import type { Playlist, ScanProgress, SourceId } from '../shared/types'
 
@@ -19,9 +20,10 @@ if (process.env.PROJECTM_DATA) app.setPath('userData', process.env.PROJECTM_DATA
 const dataDir = app.getPath('userData')
 const library = new Library(dataDir)
 const playlists = new JsonFile<Playlist[]>(join(dataDir, 'playlists.json'), [])
-const youtube = new YouTubeMusic(join(dataDir, 'cache'))
+const secrets = new Secrets(join(dataDir, 'accounts.json'))
+const youtube = new YouTubeMusic(join(dataDir, 'cache'), secrets)
 const spotify = new Spotify(join(dataDir, 'spotify.json'))
-const soundcloud = new SoundCloud()
+const soundcloud = new SoundCloud(secrets)
 const streaming: Partial<Record<SourceId, StreamingSource>> = { youtube, soundcloud, spotify }
 const accounts: Partial<Record<SourceId, AccountSource>> = { youtube, soundcloud, spotify }
 
@@ -122,7 +124,7 @@ ipcMain.handle('playlists:save', (_, list: Playlist[]) => playlists.set(list))
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark'
   Menu.setApplicationMenu(null)
-  await Promise.all([library.load(), playlists.load(), spotify.load()])
+  await Promise.all([library.load(), playlists.load(), spotify.load(), secrets.load()])
   protocol.handle('media', (req) => handleMedia(req, library, youtube))
   createWindow()
   // Pick up files added/changed while the app was closed.

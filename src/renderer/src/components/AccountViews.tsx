@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { RemotePlaylist, SourceId, Track } from '../../../shared/types'
 import {
   connectAccount,
@@ -60,7 +60,7 @@ export function AccountSourceView({ source }: { source: SourceId }) {
       <SpotifySetup />
     ) : (
       <>
-        <Hero kicker="Source" title={info.name} color={info.color} meta="Search works without an account" art={<SourceArt source={source} />} />
+        <Hero kicker="Source" title={info.name} color={info.color} meta="Search works without an account. Connect to see your likes and playlists." art={<SourceArt source={source} />} />
         <ConnectCard source={source} />
         <SearchView source={source} />
       </>
@@ -105,44 +105,108 @@ export function AccountSourceView({ source }: { source: SourceId }) {
   )
 }
 
+/**
+ * YouTube (Google) and SoundCloud block sign-in from embedded app windows, so the user signs in
+ * in their normal browser and hands us the login cookie. It's stored encrypted on this PC.
+ */
+const PASTE_STEPS: Partial<Record<SourceId, { url: string; steps: ReactNode[]; placeholder: string }>> = {
+  youtube: {
+    url: 'https://music.youtube.com',
+    placeholder: 'Paste the cookie value here (it starts with something like VISITOR_INFO1_LIVE=… or SID=…)',
+    steps: [
+      <>
+        Open <b>music.youtube.com</b> in your normal browser (Brave, Chrome, Edge…) and make sure you're signed in.
+      </>,
+      <>
+        Press <kbd>F12</kbd>, open the <b>Network</b> tab, type <code>browse</code> in its filter box, then click
+        Home or Library in YouTube Music so requests show up.
+      </>,
+      <>
+        Click one of the <b>browse</b> requests → <b>Headers</b> → under <b>Request Headers</b> find{' '}
+        <code>cookie</code>, right-click it → <b>Copy value</b>.
+      </>,
+    ],
+  },
+  soundcloud: {
+    url: 'https://soundcloud.com',
+    placeholder: 'Paste the oauth_token value here (looks like 2-123456-78901234-AbCdEfGh…)',
+    steps: [
+      <>
+        Open <b>soundcloud.com</b> in your normal browser and make sure you're signed in.
+      </>,
+      <>
+        Press <kbd>F12</kbd>, open the <b>Application</b> tab → <b>Cookies</b> → <code>https://soundcloud.com</code>.
+      </>,
+      <>
+        Find the <code>oauth_token</code> row, double-click its <b>Value</b> and press <kbd>Ctrl</kbd>+<kbd>C</kbd>.
+      </>,
+    ],
+  },
+}
+
 function ConnectCard({ source }: { source: SourceId }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [value, setValue] = useState('')
   const name = SOURCES[source].name
+  const guide = PASTE_STEPS[source]!
+
+  const connect = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await connectAccount(source, value)
+      setValue('')
+      toast(`${name} connected`)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <div className="connect-card">
-      <div>
-        <h3>Connect your {name} account</h3>
-        <p>
-          See your liked songs and playlists here. A {name} sign-in window opens: you log in on the real {name} page,
-          ProjectM never sees your password.
-        </p>
-        {error && <div className="result-error flat">{error}</div>}
+    <div className="connect-card paste">
+      <div className="connect-head">
+        <div>
+          <h3>Connect your {name} account</h3>
+          <p>
+            {name} doesn't allow signing in from inside other apps, so you sign in with your browser and give ProjectM
+            the login cookie once. It's stored encrypted on this PC and only ever sent to {name}. Don't share it with
+            anyone; Disconnect deletes it.
+          </p>
+        </div>
+        <button className="btn" onClick={() => window.open(guide.url)}>
+          Open {name} in browser
+        </button>
       </div>
-      <button
-        className="btn primary"
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true)
-          setError(null)
-          try {
-            await connectAccount(source)
-            toast(`${name} connected`)
-          } catch (err) {
-            setError((err as Error).message)
-          } finally {
-            setBusy(false)
-          }
-        }}
-      >
-        {busy ? (
-          <>
-            <RefreshIcon size={14} className="spin" /> Waiting for sign-in…
-          </>
-        ) : (
-          'Connect'
-        )}
-      </button>
+      <ol className="mini-steps">
+        {guide.steps.map((s, i) => (
+          <li key={i}>{s}</li>
+        ))}
+      </ol>
+      <div className="copy-row">
+        <input
+          className="text-input"
+          type="password"
+          value={value}
+          placeholder={guide.placeholder}
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && value.trim() && !busy && connect()}
+        />
+        <button className="btn primary" disabled={busy || !value.trim()} onClick={connect}>
+          {busy ? (
+            <>
+              <RefreshIcon size={14} className="spin" /> Checking…
+            </>
+          ) : (
+            'Connect'
+          )}
+        </button>
+      </div>
+      {error && <div className="result-error flat">{error}</div>}
     </div>
   )
 }

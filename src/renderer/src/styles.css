@@ -1714,3 +1714,52 @@ p {
   font-size: 16px;
   margin-bottom: 4px;
 }
+
+/* ---------- paste-login connect card ---------- */
+
+.connect-card.paste {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+.connect-card.paste > div {
+  max-width: none;
+}
+.connect-head {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+.connect-head p {
+  max-width: 620px;
+}
+.mini-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.mini-steps b {
+  color: var(--text);
+}
+.connect-card code,
+.setup code {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--bg-3);
+  color: var(--text);
+  font: 12px Consolas, monospace;
+}
+kbd {
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--line-2);
+  border-bottom-width: 2px;
+  background: var(--bg-3);
+  color: var(--text);
+  font: 11px Consolas, monospace;
+}

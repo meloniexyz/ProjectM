@@ -1,8 +1,13 @@
 import type { AccountStatus, RemotePlaylist, Track } from '../../shared/types'
-import { accountSession, clearAccountSession, openLoginWindow } from './login-window'
+import type { Secrets } from '../secrets'
 import { UA, type AccountSource, type StreamInfo, type StreamingSource } from './types'
 
-const PARTITION = 'persist:account-soundcloud'
+/** Accepts the token itself, "oauth_token=...", or a whole pasted cookie string. */
+function extractToken(input: string) {
+  const text = input.trim().replace(/^["']|["']$/g, '')
+  const m = text.match(/oauth_token=([^;\s]+)/)
+  return (m ? m[1] : text).replace(/^OAuth\s+/i, '').trim()
+}
 
 const API = 'https://api-v2.soundcloud.com'
 
@@ -50,10 +55,11 @@ export class SoundCloud implements StreamingSource, AccountSource {
   private clientId: Promise<string> | null = null
   private me: Promise<ScUser> | null = null
 
+  constructor(private readonly secrets: Secrets) {}
+
   /** The signed-in user's OAuth token (the `oauth_token` cookie soundcloud.com sets). */
   private async token(): Promise<string | undefined> {
-    const [c] = await accountSession(PARTITION).cookies.get({ url: 'https://soundcloud.com', name: 'oauth_token' })
-    return c?.value || undefined
+    return this.secrets.get('soundcloud.token')
   }
 
   private getClientId(refresh = false) {
@@ -99,19 +105,25 @@ export class SoundCloud implements StreamingSource, AccountSource {
     return { connected: true, userName: me?.username ?? null }
   }
 
-  async login(): Promise<AccountStatus> {
-    await openLoginWindow({
-      partition: PARTITION,
-      title: 'Sign in to SoundCloud',
-      url: 'https://soundcloud.com/signin',
-      isDone: (cookies) => cookies.some((c) => c.name === 'oauth_token' && !!c.value),
-    })
+  /** Signs in with the `oauth_token` cookie copied from a browser logged in to soundcloud.com. */
+  async login(pasted = ''): Promise<AccountStatus> {
+    const token = extractToken(pasted)
+    if (!/^[\w.-]{20,}$/.test(token)) {
+      throw new Error("That doesn't look like a SoundCloud oauth_token. Copy the Value of the oauth_token cookie.")
+    }
+    await this.secrets.set('soundcloud.token', token)
     this.me = null
+    try {
+      await this.user()
+    } catch {
+      await this.logout()
+      throw new Error("SoundCloud didn't accept that token. Make sure you're logged in on soundcloud.com and copy it again.")
+    }
     return this.status()
   }
 
   async logout() {
-    await clearAccountSession(PARTITION)
+    await this.secrets.set('soundcloud.token', undefined)
     this.me = null
   }
 

@@ -2,7 +2,7 @@ import vm from 'node:vm'
 import { join } from 'node:path'
 import { Innertube, Log, Platform, UniversalCache } from 'youtubei.js'
 import type { AccountStatus, RemotePlaylist, Track } from '../../shared/types'
-import { accountSession, clearAccountSession, openLoginWindow } from './login-window'
+import type { Secrets } from '../secrets'
 import { PoTokenMinter } from './potoken'
 import { UA, type AccountSource, type StreamInfo, type StreamingSource } from './types'
 
@@ -11,8 +11,18 @@ import { UA, type AccountSource, type StreamInfo, type StreamingSource } from '.
 const CLIENTS = ['YTMUSIC', 'IOS', 'MWEB'] as const
 /** Max bytes fetched per range request; YouTube throttles/refuses huge open-ended ranges. */
 const CHUNK = 8 * 1024 * 1024
-const PARTITION = 'persist:account-youtube'
 const LOGIN_COOKIES = ['SAPISID', '__Secure-3PAPISID']
+
+/**
+ * Accepts what people paste: the cookie value, a "cookie: ..." header line, or a whole block
+ * of copied request headers. Returns the bare cookie string.
+ */
+function extractCookie(input: string) {
+  const text = input.trim()
+  const line = text.split(/\r?\n/).find((l) => /^\s*cookie\s*:/i.test(l))
+  const value = (line ? line.replace(/^\s*cookie\s*:\s*/i, '') : text).trim().replace(/^["']|["']$/g, '')
+  return value
+}
 
 interface ResolvedStream {
   url: string
@@ -92,7 +102,10 @@ function overlap(a: string, b: string) {
 }
 
 export class YouTubeMusic implements StreamingSource, AccountSource {
+  /** anonymous client: search + streaming (tested path, independent of any login) */
   private client: Promise<Innertube> | null = null
+  /** signed-in client: only for the user's own library */
+  private authedClient: Promise<Innertube> | null = null
   private streams = new Map<string, ResolvedStream>()
   private userName: string | null = null
   private poTokens = new PoTokenMinter(async () => {
@@ -103,28 +116,39 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     return { program: bg.program, globalName: bg.global_name, interpreterUrl }
   })
 
-  constructor(private readonly cacheDir: string) {}
+  constructor(
+    private readonly cacheDir: string,
+    private readonly secrets: Secrets,
+  ) {}
 
   /** The signed-in cookie header, if the user connected their account. */
   private async cookie(): Promise<string | undefined> {
-    const cookies = await accountSession(PARTITION).cookies.get({ url: 'https://music.youtube.com' })
-    if (!cookies.some((c) => LOGIN_COOKIES.includes(c.name))) return undefined
-    return cookies.map((c) => `${c.name}=${c.value}`).join('; ')
+    return this.secrets.get('youtube.cookie')
   }
 
   private yt() {
-    this.client ??= (async () =>
-      Innertube.create({
-        generate_session_locally: true,
-        retrieve_player: true,
-        user_agent: UA,
-        cookie: await this.cookie(),
-        cache: new UniversalCache(true, join(this.cacheDir, 'youtube')),
-      }))().catch((err) => {
+    this.client ??= Innertube.create({
+      generate_session_locally: true,
+      retrieve_player: true,
+      user_agent: UA,
+      cache: new UniversalCache(true, join(this.cacheDir, 'youtube')),
+    }).catch((err) => {
       this.client = null // retry next time
       throw err
     })
     return this.client
+  }
+
+  private authed() {
+    this.authedClient ??= (async () => {
+      const cookie = await this.cookie()
+      if (!cookie) throw new Error('YouTube Music account is not connected')
+      return Innertube.create({ cookie, user_agent: UA, retrieve_player: false })
+    })().catch((err) => {
+      this.authedClient = null
+      throw err
+    })
+    return this.authedClient
   }
 
   // ---------- account ----------
@@ -133,37 +157,35 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     return { connected: !!(await this.cookie()), userName: this.userName }
   }
 
-  async login(): Promise<AccountStatus> {
-    await openLoginWindow({
-      partition: PARTITION,
-      title: 'Sign in to YouTube Music',
-      url: 'https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fmusic.youtube.com%2F',
-      isDone: (cookies, url) =>
-        url.startsWith('https://music.youtube.com') &&
-        cookies.some((c) => LOGIN_COOKIES.includes(c.name) && (c.domain ?? '').includes('youtube.com')),
-    })
-    this.client = null // rebuild with the new cookies
-    this.streams.clear()
+  /** Signs in with the cookie copied from a browser where the user is logged in to YouTube Music. */
+  async login(pasted = ''): Promise<AccountStatus> {
+    const cookie = extractCookie(pasted)
+    if (!LOGIN_COOKIES.some((name) => new RegExp(`(^|;\\s*)${name}=`).test(cookie))) {
+      throw new Error(
+        "That doesn't look like a signed-in YouTube cookie (it has no SAPISID). Make sure you're logged in on music.youtube.com and copy the whole cookie value.",
+      )
+    }
+    await this.secrets.set('youtube.cookie', cookie)
+    this.authedClient = null // rebuild with the new cookie
     try {
-      const info = await (await this.yt()).account.getInfo()
+      const info = await (await this.authed()).account.getInfo()
       const first = (info.contents?.contents as unknown as { account_name?: { toString(): string } }[] | undefined)?.[0]
       this.userName = first?.account_name?.toString() ?? null
-    } catch {
-      // name is cosmetic
+    } catch (err) {
+      await this.logout()
+      throw new Error(`YouTube didn't accept that login (${(err as Error).message}). Copy a fresh cookie and try again.`)
     }
     return this.status()
   }
 
   async logout() {
-    await clearAccountSession(PARTITION)
-    this.client = null
+    await this.secrets.set('youtube.cookie', undefined)
+    this.authedClient = null
     this.userName = null
-    this.streams.clear()
   }
 
-  private async signedIn() {
-    if (!(await this.cookie())) throw new Error('YouTube Music account is not connected')
-    return this.yt()
+  private signedIn() {
+    return this.authed()
   }
 
   liked() {
