@@ -1763,3 +1763,64 @@ kbd {
   color: var(--text);
   font: 11px Consolas, monospace;
 }
+
+/* ---------- sign-in cards ---------- */
+
+.text-input.plain {
+  font-family: inherit;
+}
+.link-btn.inline {
+  font-size: inherit;
+  color: var(--accent-2);
+  text-decoration: underline;
+}
+.connect-card > .link-btn {
+  align-self: flex-start;
+}
+.device-code {
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--bg-3);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.device-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.code-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.big-code {
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--bg-1);
+  color: var(--text);
+  font: 700 26px/1 Consolas, monospace;
+  letter-spacing: 0.12em;
+  user-select: all;
+}
+.waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.waiting .link-btn {
+  margin-left: auto;
+}
+.advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  font-size: 13px;
+}

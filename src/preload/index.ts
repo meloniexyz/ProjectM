@@ -38,6 +38,15 @@ const api = {
     status: (s: SourceId): Promise<AccountStatus> => ipcRenderer.invoke('account:status', s),
     login: (s: SourceId, arg?: string): Promise<AccountStatus> => ipcRenderer.invoke('account:login', s, arg),
     logout: (s: SourceId): Promise<AccountStatus> => ipcRenderer.invoke('account:logout', s),
+    cancel: (): Promise<void> => ipcRenderer.invoke('account:cancel'),
+    /** sign-in code to enter at google.com/device (YouTube) */
+    onCode(cb: (c: { source: SourceId; code: string; url: string }) => void) {
+      const handler = (_: unknown, c: { source: SourceId; code: string; url: string }) => cb(c)
+      ipcRenderer.on('account:code', handler)
+      return () => {
+        ipcRenderer.removeListener('account:code', handler)
+      }
+    },
     liked: (s: SourceId): Promise<Track[]> => ipcRenderer.invoke('account:liked', s),
     top: (s: SourceId): Promise<Track[]> => ipcRenderer.invoke('account:top', s),
     playlists: (s: SourceId): Promise<RemotePlaylist[]> => ipcRenderer.invoke('account:playlists', s),

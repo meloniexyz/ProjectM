@@ -16,7 +16,15 @@ function setStatus(source: SourceId, status: AccountStatus) {
   accountStore.set((s) => ({ accounts: { ...s.accounts, [source]: status } }))
 }
 
+/** The code to type at google.com/device while a YouTube sign-in is waiting. */
+export const deviceCodeStore = createStore<{ code: { code: string; url: string } | null }>({ code: null })
+
+let listening = false
 export async function initAccounts() {
+  if (!listening) {
+    listening = true
+    api.onCode((c) => deviceCodeStore.set({ code: { code: c.code, url: c.url } }))
+  }
   await Promise.all(
     ACCOUNT_SOURCES.map((s) =>
       api.status(s).then(
@@ -33,7 +41,14 @@ export async function connectAccount(source: SourceId, arg?: string) {
     refreshAccount(source)
   } catch (err) {
     throw cleanError(err)
+  } finally {
+    deviceCodeStore.set({ code: null })
   }
+}
+
+export function cancelSignIn() {
+  deviceCodeStore.set({ code: null })
+  return api.cancel()
 }
 
 export async function disconnectAccount(source: SourceId) {

@@ -74,6 +74,7 @@ function createWindow() {
 }
 
 const progress = (p: ScanProgress) => win?.webContents.send('library:progress', p)
+youtube.onDeviceCode = (code) => win?.webContents.send('account:code', { source: 'youtube', ...code })
 
 ipcMain.handle('library:get', () => library.state())
 ipcMain.handle('library:addFolder', async () => {
@@ -101,6 +102,7 @@ ipcMain.handle('sources:resolve', (_, source: SourceId, id: string) => streaming
 ipcMain.handle('sources:match', (_, t: { title: string; artist: string; duration: number }) => youtube.match(t))
 ipcMain.handle('account:status', (_, s: SourceId) => account(s).status())
 ipcMain.handle('account:login', (_, s: SourceId, arg?: string) => account(s).login(arg))
+ipcMain.handle('account:cancel', () => youtube.cancelLogin())
 ipcMain.handle('account:logout', async (_, s: SourceId) => {
   await account(s).logout()
   return account(s).status()

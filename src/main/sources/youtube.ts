@@ -1,6 +1,6 @@
 import vm from 'node:vm'
 import { join } from 'node:path'
-import { Innertube, Log, Platform, UniversalCache } from 'youtubei.js'
+import { Innertube, Log, Platform, UniversalCache, type OAuth2Tokens } from 'youtubei.js'
 import type { AccountStatus, RemotePlaylist, Track } from '../../shared/types'
 import type { Secrets } from '../secrets'
 import { PoTokenMinter } from './potoken'
@@ -11,17 +11,14 @@ import { UA, type AccountSource, type StreamInfo, type StreamingSource } from '.
 const CLIENTS = ['YTMUSIC', 'IOS', 'MWEB'] as const
 /** Max bytes fetched per range request; YouTube throttles/refuses huge open-ended ranges. */
 const CHUNK = 8 * 1024 * 1024
-const LOGIN_COOKIES = ['SAPISID', '__Secure-3PAPISID']
+const OAUTH_KEY = 'youtube.oauth'
 
-/**
- * Accepts what people paste: the cookie value, a "cookie: ..." header line, or a whole block
- * of copied request headers. Returns the bare cookie string.
- */
-function extractCookie(input: string) {
-  const text = input.trim()
-  const line = text.split(/\r?\n/).find((l) => /^\s*cookie\s*:/i.test(l))
-  const value = (line ? line.replace(/^\s*cookie\s*:\s*/i, '') : text).trim().replace(/^["']|["']$/g, '')
-  return value
+/** Stored sign-in: YouTube's OAuth tokens, plus the user's own Google client if they used one. */
+type SavedLogin = OAuth2Tokens & { client?: { client_id: string; client_secret: string } }
+
+export interface DeviceCode {
+  code: string
+  url: string
 }
 
 interface ResolvedStream {
@@ -121,9 +118,17 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     private readonly secrets: Secrets,
   ) {}
 
-  /** The signed-in cookie header, if the user connected their account. */
-  private async cookie(): Promise<string | undefined> {
-    return this.secrets.get('youtube.cookie')
+  /** Called with the code the user types at google.com/device during sign-in. */
+  onDeviceCode: (code: DeviceCode) => void = () => {}
+  private loginAttempt = 0
+
+  private saved(): SavedLogin | undefined {
+    const raw = this.secrets.get(OAUTH_KEY)
+    return raw ? (JSON.parse(raw) as SavedLogin) : undefined
+  }
+
+  private save(tokens: SavedLogin | undefined) {
+    return this.secrets.set(OAUTH_KEY, tokens ? JSON.stringify(tokens) : undefined)
   }
 
   private yt() {
@@ -141,9 +146,15 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
 
   private authed() {
     this.authedClient ??= (async () => {
-      const cookie = await this.cookie()
-      if (!cookie) throw new Error('YouTube Music account is not connected')
-      return Innertube.create({ cookie, user_agent: UA, retrieve_player: false })
+      const saved = this.saved()
+      if (!saved) throw new Error('YouTube Music account is not connected')
+      const yt = await Innertube.create({ retrieve_player: false })
+      // tokens refresh themselves hourly; keep the newest ones
+      yt.session.on('update-credentials', ({ credentials }) => {
+        if (credentials?.access_token) void this.save({ ...(credentials as OAuth2Tokens), client: saved.client })
+      })
+      await yt.session.signIn(saved)
+      return yt
     })().catch((err) => {
       this.authedClient = null
       throw err
@@ -154,32 +165,61 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
   // ---------- account ----------
 
   async status(): Promise<AccountStatus> {
-    return { connected: !!(await this.cookie()), userName: this.userName }
+    return { connected: !!this.saved(), userName: this.userName }
   }
 
-  /** Signs in with the cookie copied from a browser where the user is logged in to YouTube Music. */
-  async login(pasted = ''): Promise<AccountStatus> {
-    const cookie = extractCookie(pasted)
-    if (!LOGIN_COOKIES.some((name) => new RegExp(`(^|;\\s*)${name}=`).test(cookie))) {
-      throw new Error(
-        "That doesn't look like a signed-in YouTube cookie (it has no SAPISID). Make sure you're logged in on music.youtube.com and copy the whole cookie value.",
-      )
-    }
-    await this.secrets.set('youtube.cookie', cookie)
-    this.authedClient = null // rebuild with the new cookie
+  /**
+   * "Sign in with a code", like on a smart TV: we show a code, the user approves it at
+   * google.com/device in their own browser. `arg` may carry the user's own Google OAuth
+   * client ("TVs and Limited Input devices" type) as JSON, if YouTube refuses the default one.
+   */
+  async login(arg = ''): Promise<AccountStatus> {
+    const attempt = ++this.loginAttempt
+    const custom = arg ? (JSON.parse(arg) as { clientId: string; clientSecret: string }) : null
+    const client = custom ? { client_id: custom.clientId.trim(), client_secret: custom.clientSecret.trim() } : undefined
+
+    const yt = await Innertube.create({ retrieve_player: false })
+    if (client) (yt.session.oauth as unknown as { client_id: unknown }).client_id = client
+    const tokens = await new Promise<OAuth2Tokens>((resolve, reject) => {
+      yt.session.on('auth-pending', (d) => this.onDeviceCode({ code: d.user_code, url: d.verification_url }))
+      yt.session.on('auth', ({ credentials }) => (credentials ? resolve(credentials) : reject(new Error('no credentials'))))
+      yt.session.on('auth-error', (err) => reject(err))
+      yt.session.signIn().catch(reject)
+    }).catch((err: Error) => {
+      throw new Error(`Google sign-in failed: ${err.message}`)
+    })
+    if (attempt !== this.loginAttempt) throw new Error('Sign-in was cancelled')
+
+    await this.save({ ...tokens, client })
+    this.authedClient = null
     try {
-      const info = await (await this.authed()).account.getInfo()
-      const first = (info.contents?.contents as unknown as { account_name?: { toString(): string } }[] | undefined)?.[0]
-      this.userName = first?.account_name?.toString() ?? null
+      const authed = await this.authed()
+      // prove the music library is reachable with this sign-in before calling it connected
+      await authed.music.getPlaylist('LM')
+      try {
+        const info = await authed.account.getInfo()
+        const first = (info.contents?.contents as unknown as { account_name?: { toString(): string } }[] | undefined)?.[0]
+        this.userName = first?.account_name?.toString() ?? null
+      } catch {
+        // name is cosmetic
+      }
     } catch (err) {
       await this.logout()
-      throw new Error(`YouTube didn't accept that login (${(err as Error).message}). Copy a fresh cookie and try again.`)
+      throw new Error(
+        custom
+          ? `YouTube Music refused this sign-in (${(err as Error).message}).`
+          : `NEEDS_CLIENT: YouTube Music didn't accept the TV sign-in (${(err as Error).message}).`,
+      )
     }
     return this.status()
   }
 
+  cancelLogin() {
+    this.loginAttempt++
+  }
+
   async logout() {
-    await this.secrets.set('youtube.cookie', undefined)
+    await this.save(undefined)
     this.authedClient = null
     this.userName = null
   }

@@ -1,7 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import type { RemotePlaylist, SourceId, Track } from '../../../shared/types'
 import {
+  cancelSignIn,
   connectAccount,
+  deviceCodeStore,
   disconnectAccount,
   likedSongs,
   refreshAccount,
@@ -14,6 +16,7 @@ import { createPlaylist } from '../lib/library'
 import { useNav } from '../lib/nav'
 import { playTracks } from '../lib/player'
 import { SOURCES } from '../lib/sources'
+import { useStore } from '../lib/store'
 import { toast } from '../lib/ui'
 import { Artwork, Empty, Hero, PlayActions } from './common'
 import { PlayIcon, PlaylistIcon, PlusIcon, RefreshIcon, SourceBadge } from './Icons'
@@ -60,7 +63,7 @@ export function AccountSourceView({ source }: { source: SourceId }) {
       <SpotifySetup />
     ) : (
       <>
-        <Hero kicker="Source" title={info.name} color={info.color} meta="Search works without an account. Connect to see your likes and playlists." art={<SourceArt source={source} />} />
+        <Hero kicker="Source" title={info.name} color={info.color} meta={source === 'soundcloud' ? 'Search works right away. Add your profile to see your likes and playlists.' : 'Search works right away. Sign in to see your likes and playlists.'} art={<SourceArt source={source} />} />
         <ConnectCard source={source} />
         <SearchView source={source} />
       </>
@@ -105,108 +108,217 @@ export function AccountSourceView({ source }: { source: SourceId }) {
   )
 }
 
-/**
- * YouTube (Google) and SoundCloud block sign-in from embedded app windows, so the user signs in
- * in their normal browser and hands us the login cookie. It's stored encrypted on this PC.
- */
-const PASTE_STEPS: Partial<Record<SourceId, { url: string; steps: ReactNode[]; placeholder: string }>> = {
-  youtube: {
-    url: 'https://music.youtube.com',
-    placeholder: 'Paste the cookie value here (it starts with something like VISITOR_INFO1_LIVE=… or SID=…)',
-    steps: [
-      <>
-        Open <b>music.youtube.com</b> in your normal browser (Brave, Chrome, Edge…) and make sure you're signed in.
-      </>,
-      <>
-        Press <kbd>F12</kbd>, open the <b>Network</b> tab, type <code>browse</code> in its filter box, then click
-        Home or Library in YouTube Music so requests show up.
-      </>,
-      <>
-        Click one of the <b>browse</b> requests → <b>Headers</b> → under <b>Request Headers</b> find{' '}
-        <code>cookie</code>, right-click it → <b>Copy value</b>.
-      </>,
-    ],
-  },
-  soundcloud: {
-    url: 'https://soundcloud.com',
-    placeholder: 'Paste the oauth_token value here (looks like 2-123456-78901234-AbCdEfGh…)',
-    steps: [
-      <>
-        Open <b>soundcloud.com</b> in your normal browser and make sure you're signed in.
-      </>,
-      <>
-        Press <kbd>F12</kbd>, open the <b>Application</b> tab → <b>Cookies</b> → <code>https://soundcloud.com</code>.
-      </>,
-      <>
-        Find the <code>oauth_token</code> row, double-click its <b>Value</b> and press <kbd>Ctrl</kbd>+<kbd>C</kbd>.
-      </>,
-    ],
-  },
+function ConnectCard({ source }: { source: SourceId }) {
+  return source === 'youtube' ? <YouTubeSignIn /> : <SoundCloudProfile />
 }
 
-function ConnectCard({ source }: { source: SourceId }) {
+/** SoundCloud likes and public playlists are public: all we need is which profile is yours. */
+function SoundCloudProfile() {
+  const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [value, setValue] = useState('')
-  const name = SOURCES[source].name
-  const guide = PASTE_STEPS[source]!
-
   const connect = async () => {
     setBusy(true)
     setError(null)
     try {
-      await connectAccount(source, value)
-      setValue('')
-      toast(`${name} connected`)
+      await connectAccount('soundcloud', value)
+      toast('SoundCloud profile connected')
     } catch (err) {
       setError((err as Error).message)
     } finally {
       setBusy(false)
     }
   }
+  return (
+    <div className="connect-card paste">
+      <div>
+        <h3>Connect your SoundCloud profile</h3>
+        <p>
+          Your likes and playlists on SoundCloud are public, so ProjectM just needs to know which profile is yours. No
+          password or login needed. (Private playlists won't show up.)
+        </p>
+      </div>
+      <div className="copy-row">
+        <input
+          className="text-input plain"
+          value={value}
+          placeholder="Your profile link, e.g. soundcloud.com/yourname (or just yourname)"
+          spellCheck={false}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && value.trim() && !busy && connect()}
+        />
+        <button className="btn primary" disabled={busy || !value.trim()} onClick={connect}>
+          {busy ? <RefreshIcon size={14} className="spin" /> : null} Connect
+        </button>
+      </div>
+      {error && <div className="result-error flat">{error}</div>}
+    </div>
+  )
+}
+
+/** "Sign in with a code" (like a smart TV): approve in your own browser at google.com/device. */
+function YouTubeSignIn() {
+  const code = useStore(deviceCodeStore, (s) => s.code)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [needsClient, setNeedsClient] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+
+  const signIn = async (custom?: { clientId: string; clientSecret: string }) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await connectAccount('youtube', custom ? JSON.stringify(custom) : undefined)
+      toast('YouTube Music connected')
+    } catch (err) {
+      const msg = (err as Error).message
+      if (msg.startsWith('NEEDS_CLIENT:')) {
+        setNeedsClient(true)
+        setShowAdvanced(true)
+        setError(msg.replace('NEEDS_CLIENT: ', ''))
+      } else if (!/cancelled/i.test(msg)) setError(msg)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copy = (text: string) =>
+    navigator.clipboard.writeText(text).then(
+      () => toast('Code copied'),
+      () => toast('Copy failed, type it in manually'),
+    )
 
   return (
     <div className="connect-card paste">
       <div className="connect-head">
         <div>
-          <h3>Connect your {name} account</h3>
+          <h3>Connect your YouTube Music account</h3>
           <p>
-            {name} doesn't allow signing in from inside other apps, so you sign in with your browser and give ProjectM
-            the login cookie once. It's stored encrypted on this PC and only ever sent to {name}. Don't share it with
-            anyone; Disconnect deletes it.
+            Sign in with Google like you would on a smart TV: ProjectM shows a code, you approve it in your own
+            browser. Your password never touches ProjectM.
           </p>
         </div>
-        <button className="btn" onClick={() => window.open(guide.url)}>
-          Open {name} in browser
-        </button>
+        {!busy && (
+          <button className="btn primary" onClick={() => signIn()}>
+            Sign in with Google
+          </button>
+        )}
       </div>
-      <ol className="mini-steps">
-        {guide.steps.map((s, i) => (
-          <li key={i}>{s}</li>
-        ))}
-      </ol>
-      <div className="copy-row">
-        <input
-          className="text-input"
-          type="password"
-          value={value}
-          placeholder={guide.placeholder}
-          spellCheck={false}
-          autoComplete="off"
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && value.trim() && !busy && connect()}
-        />
-        <button className="btn primary" disabled={busy || !value.trim()} onClick={connect}>
-          {busy ? (
+
+      {busy && (
+        <div className="device-code">
+          {code ? (
             <>
-              <RefreshIcon size={14} className="spin" /> Checking…
+              <div className="device-steps">
+                <span>
+                  1. Open{' '}
+                  <button className="link-btn inline" onClick={() => window.open(code.url)}>
+                    {code.url.replace(/^https?:\/\/(www\.)?/, '')}
+                  </button>{' '}
+                  in your browser
+                </span>
+                <span>2. Enter this code and pick your account:</span>
+              </div>
+              <div className="code-row">
+                <code className="big-code">{code.code}</code>
+                <button className="btn small" onClick={() => copy(code.code)}>
+                  Copy
+                </button>
+                <button className="btn small" onClick={() => window.open(code.url)}>
+                  Open page
+                </button>
+              </div>
+              <div className="waiting">
+                <RefreshIcon size={13} className="spin" /> Waiting for you to approve… (the code works for 30 minutes)
+                <button className="link-btn" onClick={() => cancelSignIn().then(() => setBusy(false))}>
+                  Cancel
+                </button>
+              </div>
             </>
           ) : (
-            'Connect'
+            <div className="waiting">
+              <RefreshIcon size={13} className="spin" /> Getting a sign-in code from Google…
+            </div>
           )}
-        </button>
-      </div>
+        </div>
+      )}
+
       {error && <div className="result-error flat">{error}</div>}
+
+      {!busy && (
+        <button className="link-btn" onClick={() => setShowAdvanced((s) => !s)}>
+          {showAdvanced ? 'Hide' : 'Advanced:'} use my own Google client
+        </button>
+      )}
+      {showAdvanced && !busy && (
+        <div className="advanced">
+          {needsClient && (
+            <p>
+              YouTube didn't accept the standard TV sign-in for music. Using your own free Google client fixes that
+              (one-time, about 5 minutes). You'll still sign in with a code, same as above.
+            </p>
+          )}
+          <ol className="mini-steps">
+            <li>
+              Open the{' '}
+              <button className="link-btn inline" onClick={() => window.open('https://console.cloud.google.com/projectcreate')}>
+                Google Cloud console
+              </button>{' '}
+              and create a project (any name, e.g. ProjectM).
+            </li>
+            <li>
+              Enable the{' '}
+              <button
+                className="link-btn inline"
+                onClick={() => window.open('https://console.cloud.google.com/apis/library/youtube.googleapis.com')}
+              >
+                YouTube Data API v3
+              </button>{' '}
+              for it.
+            </li>
+            <li>
+              Go to{' '}
+              <button className="link-btn inline" onClick={() => window.open('https://console.cloud.google.com/auth/audience')}>
+                Google Auth Platform → Audience
+              </button>
+              , choose <b>External</b>, and add your own Gmail under <b>Test users</b>.
+            </li>
+            <li>
+              Go to{' '}
+              <button className="link-btn inline" onClick={() => window.open('https://console.cloud.google.com/auth/clients')}>
+                Clients → Create client
+              </button>
+              , pick <b>TVs and Limited Input devices</b>, create it, and copy the Client ID and secret below.
+            </li>
+          </ol>
+          <div className="copy-row">
+            <input
+              className="text-input"
+              value={clientId}
+              placeholder="Client ID (…apps.googleusercontent.com)"
+              spellCheck={false}
+              onChange={(e) => setClientId(e.target.value)}
+            />
+            <input
+              className="text-input"
+              type="password"
+              value={clientSecret}
+              placeholder="Client secret"
+              spellCheck={false}
+              onChange={(e) => setClientSecret(e.target.value)}
+            />
+            <button
+              className="btn primary"
+              disabled={!clientId.trim() || !clientSecret.trim()}
+              onClick={() => signIn({ clientId, clientSecret })}
+            >
+              Sign in
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

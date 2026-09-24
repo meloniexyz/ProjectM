@@ -2,11 +2,15 @@ import type { AccountStatus, RemotePlaylist, Track } from '../../shared/types'
 import type { Secrets } from '../secrets'
 import { UA, type AccountSource, type StreamInfo, type StreamingSource } from './types'
 
-/** Accepts the token itself, "oauth_token=...", or a whole pasted cookie string. */
-function extractToken(input: string) {
-  const text = input.trim().replace(/^["']|["']$/g, '')
-  const m = text.match(/oauth_token=([^;\s]+)/)
-  return (m ? m[1] : text).replace(/^OAuth\s+/i, '').trim()
+const PROFILE_KEY = 'soundcloud.profile'
+
+/** "soundcloud.com/name", a full URL, or just "name" -> profile URL. */
+function profileUrl(input: string) {
+  const text = input.trim().replace(/[?#].*$/, '').replace(/\/+$/, '')
+  const m = text.match(/soundcloud\.com\/([^/\s]+)/i)
+  const name = m ? m[1] : text.replace(/^@/, '')
+  if (!/^[\w-]{2,}$/.test(name)) throw new Error("That doesn't look like a SoundCloud profile link or username")
+  return `https://soundcloud.com/${name}`
 }
 
 const API = 'https://api-v2.soundcloud.com'
@@ -53,13 +57,12 @@ interface ScTrack {
  */
 export class SoundCloud implements StreamingSource, AccountSource {
   private clientId: Promise<string> | null = null
-  private me: Promise<ScUser> | null = null
-
   constructor(private readonly secrets: Secrets) {}
 
-  /** The signed-in user's OAuth token (the `oauth_token` cookie soundcloud.com sets). */
-  private async token(): Promise<string | undefined> {
-    return this.secrets.get('soundcloud.token')
+  /** The profile the user connected. Likes and public playlists need no login. */
+  private profile(): ScUser | undefined {
+    const raw = this.secrets.get(PROFILE_KEY)
+    return raw ? (JSON.parse(raw) as ScUser) : undefined
   }
 
   private getClientId(refresh = false) {
@@ -85,10 +88,7 @@ export class SoundCloud implements StreamingSource, AccountSource {
   private async api<T>(path: string, params: Record<string, string> = {}, retry = true): Promise<T> {
     const clientId = await this.getClientId()
     const url = `${path.startsWith('http') ? path : API + path}?${new URLSearchParams({ client_id: clientId, ...params })}`
-    const token = await this.token()
-    const headers: Record<string, string> = { 'User-Agent': UA }
-    if (token) headers.Authorization = `OAuth ${token}`
-    const res = await fetch(url, { headers })
+    const res = await fetch(url, { headers: { 'User-Agent': UA } })
     if ((res.status === 401 || res.status === 403) && retry) {
       await this.getClientId(true) // client id rotated
       return this.api(path, params, false)
@@ -100,39 +100,27 @@ export class SoundCloud implements StreamingSource, AccountSource {
   // ---------- account ----------
 
   async status(): Promise<AccountStatus> {
-    if (!(await this.token())) return { connected: false, userName: null }
-    const me = await this.user().catch(() => null)
-    return { connected: true, userName: me?.username ?? null }
+    const p = this.profile()
+    return { connected: !!p, userName: p?.username ?? null }
   }
 
-  /** Signs in with the `oauth_token` cookie copied from a browser logged in to soundcloud.com. */
-  async login(pasted = ''): Promise<AccountStatus> {
-    const token = extractToken(pasted)
-    if (!/^[\w.-]{20,}$/.test(token)) {
-      throw new Error("That doesn't look like a SoundCloud oauth_token. Copy the Value of the oauth_token cookie.")
-    }
-    await this.secrets.set('soundcloud.token', token)
-    this.me = null
-    try {
-      await this.user()
-    } catch {
-      await this.logout()
-      throw new Error("SoundCloud didn't accept that token. Make sure you're logged in on soundcloud.com and copy it again.")
-    }
+  /** "Connects" a profile by its link or username: SoundCloud likes and playlists are public. */
+  async login(input = ''): Promise<AccountStatus> {
+    const url = profileUrl(input)
+    const found = await this.api<{ kind?: string; id?: number; username?: string }>('/resolve', { url }).catch(() => null)
+    if (found?.kind !== 'user' || !found.id) throw new Error(`Couldn't find a SoundCloud profile at ${url}`)
+    await this.secrets.set(PROFILE_KEY, JSON.stringify({ id: found.id, username: found.username ?? '' }))
     return this.status()
   }
 
   async logout() {
-    await this.secrets.set('soundcloud.token', undefined)
-    this.me = null
+    await this.secrets.set(PROFILE_KEY, undefined)
   }
 
-  private user() {
-    this.me ??= this.api<ScUser>('/me').catch((err) => {
-      this.me = null
-      throw err
-    })
-    return this.me
+  private async user(): Promise<ScUser> {
+    const p = this.profile()
+    if (!p) throw new Error('No SoundCloud profile connected')
+    return p
   }
 
   /** Follows SoundCloud's next_href pagination. */
@@ -160,13 +148,13 @@ export class SoundCloud implements StreamingSource, AccountSource {
 
   async playlists(): Promise<RemotePlaylist[]> {
     const me = await this.user()
-    const items = await this.all<{ type?: string; playlist?: ScPlaylist }>('/me/library/all', { limit: '50' }, 500)
-    const seen = new Set<number>()
-    const out: RemotePlaylist[] = []
-    // own playlists come back from a separate endpoint on some accounts
-    const own = await this.all<ScPlaylist>(`/users/${me.id}/playlists_without_albums`, { limit: '50' }, 500).catch(
+    const own = await this.all<ScPlaylist>(`/users/${me.id}/playlists_without_albums`, { limit: '50' }, 500)
+    // /likes mixes liked tracks and liked playlists; keep the playlists
+    const items = await this.all<{ playlist?: ScPlaylist }>(`/users/${me.id}/likes`, { limit: '200' }, 2000).catch(
       () => [],
     )
+    const seen = new Set<number>()
+    const out: RemotePlaylist[] = []
     for (const p of [...own, ...items.map((i) => i.playlist)]) {
       if (!p || seen.has(p.id)) continue
       seen.add(p.id)
