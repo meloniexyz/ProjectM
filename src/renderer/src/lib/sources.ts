@@ -1,5 +1,5 @@
 import type { SourceId, StreamInfo, Track } from '../../../shared/types'
-import { spotifyStore } from './spotify'
+import { accountStore } from './accounts'
 import { useStore } from './store'
 
 export interface SourceInfo {
@@ -31,12 +31,17 @@ export const SOURCES: Record<SourceId, SourceInfo> = {
 }
 
 export const isConnected = (source: SourceId) =>
-  source === 'spotify' ? !!spotifyStore.get().status?.connected : true
+  source === 'spotify' ? !!accountStore.get().accounts.spotify?.connected : true
 export const isStreaming = (source: SourceId) => source !== 'local' && isConnected(source)
 export const streamingSources = () => SOURCE_ORDER.filter(isStreaming)
 
 /** Re-renders the caller when a source connects or disconnects. */
-export const useConnections = () => useStore(spotifyStore, (s) => s.status?.connected ?? false)
+export const useConnections = () =>
+  useStore(accountStore, (s) =>
+    Object.entries(s.accounts)
+      .map(([k, v]) => `${k}:${v?.connected}`)
+      .join(','),
+  )
 
 /** Turns a track into something the audio element can play. */
 export async function resolveStream(track: Track): Promise<StreamInfo> {

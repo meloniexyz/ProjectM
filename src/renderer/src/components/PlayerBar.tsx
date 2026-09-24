@@ -14,9 +14,23 @@ import {
   usePlayer,
 } from '../lib/player'
 import { Artwork, Slider } from './common'
-import { NextIcon, PauseIcon, PlayIcon, PrevIcon, QueueIcon, RepeatIcon, ShuffleIcon, SourceBadge, VolumeIcon } from './Icons'
+import {
+  NextIcon,
+  NowPlayingIcon,
+  PauseIcon,
+  PlayIcon,
+  PrevIcon,
+  QueueIcon,
+  RepeatIcon,
+  ShuffleIcon,
+  SourceBadge,
+  VolumeIcon,
+} from './Icons'
+import { SOURCES } from '../lib/sources'
 
-export function PlayerBar({ queueOpen, onToggleQueue }: { queueOpen: boolean; onToggleQueue: () => void }) {
+type Panel = 'queue' | 'nowPlaying'
+
+export function PlayerBar({ panel, onTogglePanel }: { panel: Panel | null; onTogglePanel: (p: Panel) => void }) {
   const nav = useNav()
   const track = usePlayer((s) => s.queue[s.index]?.track)
   const playing = usePlayer((s) => s.playing)
@@ -27,6 +41,7 @@ export function PlayerBar({ queueOpen, onToggleQueue }: { queueOpen: boolean; on
   const muted = usePlayer((s) => s.muted)
   const shuffle = usePlayer((s) => s.shuffle)
   const repeat = usePlayer((s) => s.repeat)
+  const via = usePlayer((s) => s.via)
   // while dragging the seek bar, show where you'd land without actually seeking yet
   const [preview, setPreview] = useState<number | null>(null)
   const shownPos = preview ?? position
@@ -59,7 +74,15 @@ export function PlayerBar({ queueOpen, onToggleQueue }: { queueOpen: boolean; on
                 </span>
               </div>
             </div>
-            <SourceBadge source={track.source} size={14} />
+            <span className="np-source" title={via ? `${SOURCES[track.source].name} song, playing from ${SOURCES[via].name}` : SOURCES[track.source].name}>
+              <SourceBadge source={track.source} size={14} />
+              {via && (
+                <>
+                  <span className="via-arrow">→</span>
+                  <SourceBadge source={via} size={14} />
+                </>
+              )}
+            </span>
           </>
         ) : (
           <div className="np-empty">Nothing playing</div>
@@ -110,7 +133,10 @@ export function PlayerBar({ queueOpen, onToggleQueue }: { queueOpen: boolean; on
       </div>
 
       <div className="extras">
-        <button className={cls('icon-btn', queueOpen && 'on')} title="Queue" onClick={onToggleQueue}>
+        <button className={cls('icon-btn', panel === 'nowPlaying' && 'on')} title="Now playing view" onClick={() => onTogglePanel('nowPlaying')}>
+          <NowPlayingIcon size={18} />
+        </button>
+        <button className={cls('icon-btn', panel === 'queue' && 'on')} title="Queue" onClick={() => onTogglePanel('queue')}>
           <QueueIcon size={18} />
         </button>
         <button className="icon-btn" title={muted ? 'Unmute' : 'Mute'} onClick={toggleMute}>

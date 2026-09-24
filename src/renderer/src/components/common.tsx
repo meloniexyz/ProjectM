@@ -4,13 +4,41 @@ import { cls } from '../lib/format'
 import { playTracks } from '../lib/player'
 import { MusicIcon, PlayIcon, ShuffleIcon } from './Icons'
 
-export function Artwork({ src, size, className }: { src?: string; size?: number; className?: string }) {
-  const [failed, setFailed] = useState<string | null>(null)
+/**
+ * Streaming services encode the image size in the URL. Asking for one close to what we
+ * display keeps lists fast (a 40 px row doesn't need a 640 px cover).
+ */
+export function artUrl(src: string | undefined, px: number) {
+  if (!src) return src
+  if (src.includes('i.scdn.co/image/')) {
+    const code = px <= 64 ? '4851' : px <= 300 ? '1e02' : 'b273' // Spotify: 64 / 300 / 640 px
+    // Same images on Spotify's Fastly mirror, which loads faster and more reliably here
+    return src
+      .replace('i.scdn.co/image/', 'image-cdn-fa.spotifycdn.com/image/')
+      .replace(/ab67616d0000(b273|1e02|4851)/, `ab67616d0000${code}`)
+  }
+  if (/googleusercontent\.com|ggpht\.com/.test(src)) return src.replace(/=w\d+-h\d+/, `=w${px}-h${px}`)
+  if (src.includes('sndcdn.com')) {
+    const size = px <= 67 ? 't67x67' : px <= 100 ? 'large' : px <= 300 ? 't300x300' : 't500x500'
+    return src.replace(/-(t500x500|t300x300|large|t67x67)\./, `-${size}.`)
+  }
+  return src
+}
+
+export function Artwork(props: { src?: string; size?: number; className?: string; px?: number }) {
+  const { size, className } = props
+  const primary = artUrl(props.src, props.px ?? (size ? size * 2 : 300))
+  // if a Spotify mirror drops the connection, try the other one before giving up
+  const backup = primary?.includes('image-cdn-fa.spotifycdn.com')
+    ? primary.replace('image-cdn-fa.spotifycdn.com', 'image-cdn-ak.spotifycdn.com')
+    : undefined
+  const [failed, setFailed] = useState<string[]>([])
+  const src = [primary, backup].find((u) => u && !failed.includes(u))
   const style = size ? { width: size, height: size } : undefined
   return (
     <div className={cls('art', className)} style={style}>
-      {src && failed !== src ? (
-        <img src={src} alt="" loading="lazy" draggable={false} onError={() => setFailed(src)} />
+      {src ? (
+        <img key={src} src={src} alt="" loading="lazy" draggable={false} onError={() => setFailed((f) => [...f, src])} />
       ) : (
         <MusicIcon size={size ? Math.max(14, Math.round(size * 0.38)) : 40} />
       )}
@@ -25,7 +53,7 @@ export function PlaylistArt({ playlist, size, className }: { playlist: Playlist;
   return (
     <div className={cls('art mosaic', className)} style={size ? { width: size, height: size } : undefined}>
       {covers.slice(0, 4).map((c) => (
-        <img key={c} src={c} alt="" loading="lazy" draggable={false} />
+        <img key={c} src={artUrl(c, 160)} alt="" loading="lazy" draggable={false} />
       ))}
     </div>
   )

@@ -7,7 +7,7 @@ import { isConnected, SOURCE_ORDER, SOURCES, useConnections } from '../lib/sourc
 import { useStore } from '../lib/store'
 import { openMenu } from '../lib/ui'
 import { PlaylistArt } from './common'
-import { DiscIcon, MusicIcon, PlusIcon, SearchIcon, SourceBadge } from './Icons'
+import { DiscIcon, HomeIcon, MusicIcon, PlusIcon, SearchIcon, SourceBadge } from './Icons'
 
 export function Sidebar() {
   const nav = useNav()
@@ -28,6 +28,7 @@ export function Sidebar() {
   return (
     <nav className="sidebar">
       <div className="side-section">
+        {item(v.kind === 'home', <HomeIcon />, 'Home', () => nav.go({ kind: 'home' }))}
         {item(v.kind === 'search', <SearchIcon />, 'Search', () => nav.go({ kind: 'search' }))}
         {item(v.kind === 'songs', <MusicIcon />, 'Songs', () => nav.go({ kind: 'songs' }))}
         {item(v.kind === 'albums' || v.kind === 'album', <DiscIcon />, 'Albums', () => nav.go({ kind: 'albums' }))}

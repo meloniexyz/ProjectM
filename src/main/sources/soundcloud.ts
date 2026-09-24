@@ -1,5 +1,8 @@
-import type { Track } from '../../shared/types'
-import { UA, type StreamInfo, type StreamingSource } from './types'
+import type { AccountStatus, RemotePlaylist, Track } from '../../shared/types'
+import { accountSession, clearAccountSession, openLoginWindow } from './login-window'
+import { UA, type AccountSource, type StreamInfo, type StreamingSource } from './types'
+
+const PARTITION = 'persist:account-soundcloud'
 
 const API = 'https://api-v2.soundcloud.com'
 
@@ -8,6 +11,23 @@ interface Transcoding {
   snipped?: boolean
   format: { protocol: string; mime_type: string }
 }
+interface ScPlaylist {
+  id: number
+  title: string
+  artwork_url?: string | null
+  track_count?: number
+  user?: { username: string }
+  tracks?: ScTrack[]
+}
+interface ScUser {
+  id: number
+  username: string
+}
+interface Page<T> {
+  collection: T[]
+  next_href?: string | null
+}
+
 interface ScTrack {
   id: number
   title: string
@@ -26,8 +46,15 @@ interface ScTrack {
  * SoundCloud's public API is closed to new apps, so this uses the same client id the
  * soundcloud.com website uses (scraped from its JS bundle and refreshed when it rotates).
  */
-export class SoundCloud implements StreamingSource {
+export class SoundCloud implements StreamingSource, AccountSource {
   private clientId: Promise<string> | null = null
+  private me: Promise<ScUser> | null = null
+
+  /** The signed-in user's OAuth token (the `oauth_token` cookie soundcloud.com sets). */
+  private async token(): Promise<string | undefined> {
+    const [c] = await accountSession(PARTITION).cookies.get({ url: 'https://soundcloud.com', name: 'oauth_token' })
+    return c?.value || undefined
+  }
 
   private getClientId(refresh = false) {
     if (refresh) this.clientId = null
@@ -52,13 +79,110 @@ export class SoundCloud implements StreamingSource {
   private async api<T>(path: string, params: Record<string, string> = {}, retry = true): Promise<T> {
     const clientId = await this.getClientId()
     const url = `${path.startsWith('http') ? path : API + path}?${new URLSearchParams({ client_id: clientId, ...params })}`
-    const res = await fetch(url, { headers: { 'User-Agent': UA } })
+    const token = await this.token()
+    const headers: Record<string, string> = { 'User-Agent': UA }
+    if (token) headers.Authorization = `OAuth ${token}`
+    const res = await fetch(url, { headers })
     if ((res.status === 401 || res.status === 403) && retry) {
       await this.getClientId(true) // client id rotated
       return this.api(path, params, false)
     }
     if (!res.ok) throw new Error(`SoundCloud returned ${res.status}`)
     return res.json() as Promise<T>
+  }
+
+  // ---------- account ----------
+
+  async status(): Promise<AccountStatus> {
+    if (!(await this.token())) return { connected: false, userName: null }
+    const me = await this.user().catch(() => null)
+    return { connected: true, userName: me?.username ?? null }
+  }
+
+  async login(): Promise<AccountStatus> {
+    await openLoginWindow({
+      partition: PARTITION,
+      title: 'Sign in to SoundCloud',
+      url: 'https://soundcloud.com/signin',
+      isDone: (cookies) => cookies.some((c) => c.name === 'oauth_token' && !!c.value),
+    })
+    this.me = null
+    return this.status()
+  }
+
+  async logout() {
+    await clearAccountSession(PARTITION)
+    this.me = null
+  }
+
+  private user() {
+    this.me ??= this.api<ScUser>('/me').catch((err) => {
+      this.me = null
+      throw err
+    })
+    return this.me
+  }
+
+  /** Follows SoundCloud's next_href pagination. */
+  private async all<T>(path: string, params: Record<string, string>, max: number): Promise<T[]> {
+    const out: T[] = []
+    let page = await this.api<Page<T>>(path, { ...params, linked_partitioning: '1' })
+    out.push(...page.collection)
+    while (page.next_href && out.length < max) {
+      const next = new URL(page.next_href)
+      next.searchParams.delete('client_id')
+      page = await this.api<Page<T>>(`${next.origin}${next.pathname}`, Object.fromEntries(next.searchParams))
+      out.push(...page.collection)
+    }
+    return out
+  }
+
+  async liked(): Promise<Track[]> {
+    const me = await this.user()
+    const likes = await this.all<{ track?: ScTrack }>(`/users/${me.id}/track_likes`, { limit: '200' }, 5000)
+    return likes
+      .map((l) => l.track)
+      .filter((t): t is ScTrack => !!t && t.policy !== 'BLOCK')
+      .map((t) => this.toTrack(t))
+  }
+
+  async playlists(): Promise<RemotePlaylist[]> {
+    const me = await this.user()
+    const items = await this.all<{ type?: string; playlist?: ScPlaylist }>('/me/library/all', { limit: '50' }, 500)
+    const seen = new Set<number>()
+    const out: RemotePlaylist[] = []
+    // own playlists come back from a separate endpoint on some accounts
+    const own = await this.all<ScPlaylist>(`/users/${me.id}/playlists_without_albums`, { limit: '50' }, 500).catch(
+      () => [],
+    )
+    for (const p of [...own, ...items.map((i) => i.playlist)]) {
+      if (!p || seen.has(p.id)) continue
+      seen.add(p.id)
+      out.push({
+        id: String(p.id),
+        name: p.title,
+        artwork: (p.artwork_url || p.tracks?.[0]?.artwork_url || undefined)?.replace('-large.', '-t500x500.'),
+        owner: p.user?.username ?? '',
+        total: p.track_count ?? 0,
+      })
+    }
+    return out
+  }
+
+  async playlistTracks(id: string): Promise<Track[]> {
+    const pl = await this.api<ScPlaylist>(`/playlists/${id}`, { representation: 'full' })
+    const tracks = pl.tracks ?? []
+    // SoundCloud only sends the first few tracks in full; the rest are just ids
+    const missing = tracks.filter((t) => !t.title).map((t) => t.id)
+    const full = new Map<number, ScTrack>()
+    for (let i = 0; i < missing.length; i += 50) {
+      const batch = await this.api<ScTrack[]>('/tracks', { ids: missing.slice(i, i + 50).join(',') })
+      for (const t of batch) full.set(t.id, t)
+    }
+    return tracks
+      .map((t) => (t.title ? t : full.get(t.id)))
+      .filter((t): t is ScTrack => !!t && t.policy !== 'BLOCK')
+      .map((t) => this.toTrack(t))
   }
 
   private toTrack(t: ScTrack): Track {

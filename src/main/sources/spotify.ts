@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import { hostname } from 'node:os'
-import { shell } from 'electron'
+import { app, shell } from 'electron'
 import { JsonFile } from '../json-file'
-import type { SpotifyPlayback, SpotifyPlaylist, SpotifyStatus, Track } from '../../shared/types'
-import type { StreamingSource } from './types'
+import type { AccountStatus, RemotePlaylist, SpotifyPlayback, Track } from '../../shared/types'
+import type { AccountSource, StreamingSource } from './types'
 
 /**
  * Spotify via the official Web API, using the user's own developer app (PKCE, no secret).
@@ -23,6 +23,7 @@ const SCOPES = [
   'user-read-playback-state',
   'user-modify-playback-state',
   'user-read-currently-playing',
+  'user-top-read',
 ].join(' ')
 
 interface Saved {
@@ -64,7 +65,7 @@ const playable = (t: ApiTrack | null | undefined): t is ApiTrack =>
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-export class Spotify implements StreamingSource {
+export class Spotify implements StreamingSource, AccountSource {
   private store: JsonFile<Saved>
   private refreshing: Promise<string> | null = null
   private deviceId: string | null = null
@@ -77,7 +78,7 @@ export class Spotify implements StreamingSource {
     return this.store.load()
   }
 
-  status(): SpotifyStatus {
+  status(): AccountStatus {
     const s = this.store.get()
     return {
       clientId: s.clientId ?? null,
@@ -96,8 +97,8 @@ export class Spotify implements StreamingSource {
   // ---------- auth ----------
 
   /** Opens the Spotify consent page in the browser and waits for the redirect back to us. */
-  async login(clientId: string): Promise<SpotifyStatus> {
-    clientId = clientId.trim()
+  async login(clientId = ''): Promise<AccountStatus> {
+    clientId = clientId.trim() || this.store.get().clientId || ''
     if (!/^[0-9a-f]{32}$/i.test(clientId)) throw new Error("That doesn't look like a Client ID (32 letters/numbers)")
 
     const verifier = randomBytes(48).toString('base64url')
@@ -264,12 +265,18 @@ export class Spotify implements StreamingSource {
     throw new Error('Spotify tracks play through Spotify Connect, not a stream URL')
   }
 
-  async likedSongs(): Promise<Track[]> {
+  /** Your most-played songs lately (needs the user-top-read permission; older logins lack it). */
+  async top(): Promise<Track[]> {
+    const res = await this.api<{ items: ApiTrack[] }>('/me/top/tracks?limit=30&time_range=short_term')
+    return res.items.filter(playable).map(toTrack)
+  }
+
+  async liked(): Promise<Track[]> {
     const items = await this.paged<{ track: ApiTrack }>('/me/tracks?limit=50')
     return items.map((i) => i.track).filter(playable).map(toTrack)
   }
 
-  async playlists(): Promise<SpotifyPlaylist[]> {
+  async playlists(): Promise<RemotePlaylist[]> {
     const items = await this.paged<{
       id: string
       name: string
@@ -315,9 +322,13 @@ export class Spotify implements StreamingSource {
 
     let found = pick(await list())
     if (!found) {
-      // Start the Spotify desktop app minimized; it registers as a Connect device after a few seconds.
+      // Not installed at all: fail right away so the player can fall back without waiting.
+      if (!app.getApplicationNameForProtocol('spotify://')) {
+        throw new Error("Couldn't find the Spotify app on this PC (it isn't installed)")
+      }
+      // Start the Spotify desktop app; it registers as a Connect device after a few seconds.
       await shell.openExternal('spotify:').catch(() => {})
-      for (let i = 0; i < 20 && !found; i++) {
+      for (let i = 0; i < 15 && !found; i++) {
         await sleep(1000)
         found = pick(await list())
       }

@@ -17,7 +17,7 @@ import {
 import { useNav } from '../lib/nav'
 import { playTracks } from '../lib/player'
 import { isConnected, isStreaming, searchSource, SOURCE_ORDER, SOURCES, streamingSources, useConnections } from '../lib/sources'
-import { SpotifyView } from './SpotifyViews'
+import { AccountSourceView } from './AccountViews'
 import { useStore } from '../lib/store'
 import { Artwork, Empty, Hero, PlayActions, PlaylistArt } from './common'
 import { DiscIcon, FolderIcon, MusicIcon, PlayIcon, PlaylistIcon, PlusIcon, RefreshIcon, SearchIcon, SourceBadge, TrashIcon, XIcon } from './Icons'
@@ -135,7 +135,7 @@ export function AlbumView({ albumKey }: { albumKey: string }) {
             {album.year ? ` · ${album.year}` : ''} · {plural(album.tracks.length, 'song')} · {fmtTotal(album.duration)}
           </>
         }
-        art={<Artwork src={album.artwork} className="hero-art" />}
+        art={<Artwork src={album.artwork} className="hero-art" px={640} />}
       />
       <PlayActions tracks={album.tracks} />
       <TrackList tracks={album.tracks} showAlbum={false} numbers="trackNo" />
@@ -440,10 +440,7 @@ export function PlaylistView({ id }: { id: string }) {
 // ---------- Sources ----------
 
 export function SourceView({ source }: { source: SourceId }) {
-  if (source === 'local') return <LocalSource />
-  if (source === 'spotify') return <SpotifyView />
-  if (isStreaming(source)) return <SearchView source={source} />
-  return <ComingSoon source={source} />
+  return source === 'local' ? <LocalSource /> : <AccountSourceView source={source} />
 }
 
 function LocalSource() {
@@ -518,29 +515,6 @@ function LocalSource() {
             </button>
           </div>
         ))}
-      </div>
-    </>
-  )
-}
-
-function ComingSoon({ source }: { source: SourceId }) {
-  const info = SOURCES[source]
-  return (
-    <>
-      <Hero
-        kicker="Source"
-        title={info.name}
-        color={info.color}
-        meta="Not connected yet"
-        art={
-          <div className="art hero-art hero-icon">
-            <SourceBadge source={source} size={96} />
-          </div>
-        }
-      />
-      <div className="soon">
-        <p>{info.plan}</p>
-        <p className="hint">Coming in a later phase. Once it's connected, its songs will show up in search, the queue and your playlists next to your local files.</p>
       </div>
     </>
   )

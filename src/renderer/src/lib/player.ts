@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type Hls from 'hls.js'
-import type { StreamInfo, Track } from '../../../shared/types'
+import type { SourceId, StreamInfo, Track } from '../../../shared/types'
+import { recordPlay } from './history'
 import { shuffled } from './format'
 import { cleanError, resolveStream } from './sources'
 import { toast } from './ui'
@@ -24,6 +25,8 @@ export interface PlayerState {
   shuffle: boolean
   repeat: Repeat
   error: string | null
+  /** set when the song plays from a different service than its own (Spotify -> YouTube Music) */
+  via: SourceId | null
 }
 
 const STORAGE_KEY = 'projectm.player'
@@ -43,6 +46,7 @@ function restore(): PlayerState {
     shuffle: false,
     repeat: 'off',
     error: null,
+    via: null,
   }
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
@@ -184,8 +188,9 @@ async function load(autoplay: boolean) {
     return
   }
   loadedKey = item.key
-  emit({ position: 0, duration: item.track.duration, error: null, buffering: autoplay })
+  emit({ position: 0, duration: item.track.duration, error: null, buffering: autoplay, via: null })
   setMediaSession(item.track)
+  if (autoplay) recordPlay(item.track)
 
   if (item.track.source === 'spotify') {
     stopAudio()
@@ -196,6 +201,7 @@ async function load(autoplay: boolean) {
       emit({ playing: false, buffering: false })
       return
     }
+    if (Date.now() < spotifyUnavailableUntil) return playFallback(item.track, seq)
     return spotifyStart(item.track, seq)
   }
   if (engine === 'spotify') spotifyStop()
@@ -253,7 +259,14 @@ async function spotifyStart(track: Track, seq: number, positionSec = 0) {
   try {
     await sp.play(track.id, positionSec * 1000)
   } catch (err) {
-    if (seq === loadSeq) fail(track, cleanError(err))
+    if (seq !== loadSeq) return
+    const e = cleanError(err)
+    // No Spotify app to play through: use the same song from YouTube Music instead.
+    if (/find the spotify app|no active device|device not found|NO_ACTIVE_DEVICE/i.test(e.message)) {
+      spotifyUnavailableUntil = Date.now() + 3 * 60_000 // don't wait on Spotify again for every song
+      return playFallback(track, seq)
+    }
+    fail(track, e)
     return
   }
   if (seq !== loadSeq) return
@@ -293,6 +306,37 @@ async function spotifyStart(track: Track, seq: number, positionSec = 0) {
       onEnded() // Spotify moved on to another song: ours finished
     }
   }, 1000)
+}
+
+let spotifyUnavailableUntil = 0
+let fallbackNoticeShown = false
+
+/** Plays a Spotify song from YouTube Music (same artist/title/length) through the audio engine. */
+async function playFallback(track: Track, seq: number) {
+  spotifyStop()
+  engine = 'audio'
+  emit({ via: 'youtube', buffering: true })
+  if (!fallbackNoticeShown) {
+    fallbackNoticeShown = true
+    toast("Spotify app isn't available, so Spotify songs play from YouTube Music for now")
+  }
+  let stream: StreamInfo
+  try {
+    const match = await window.api.sources.match({ title: track.title, artist: track.artist, duration: track.duration })
+    if (seq !== loadSeq) return
+    if (!match) throw new Error("Spotify app isn't available and YouTube Music has no match")
+    stream = await resolveStream(match)
+  } catch (err) {
+    if (seq === loadSeq) fail(track, cleanError(err))
+    return
+  }
+  if (seq !== loadSeq || !(await attach(stream, seq, track))) return
+  audio.play().catch(() => {})
+}
+
+/** Lets the next Spotify song try the Spotify app again (e.g. after the user opened it). */
+export function retrySpotifyApp() {
+  spotifyUnavailableUntil = 0
 }
 
 function spotifyToggle() {

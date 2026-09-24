@@ -44,20 +44,30 @@ export interface StreamInfo {
   kind: 'direct' | 'hls'
 }
 
-export interface SpotifyStatus {
-  clientId: string | null
+/** A signed-in streaming account (Spotify, YouTube Music, SoundCloud). */
+export interface AccountStatus {
   connected: boolean
   userName: string | null
-  /** what the user must register in their Spotify developer app */
-  redirectUri: string
+  /** Spotify only: the user's developer app */
+  clientId?: string | null
+  /** Spotify only: what the user must register in their developer app */
+  redirectUri?: string
 }
 
-export interface SpotifyPlaylist {
+/** A playlist that lives on a streaming service (not a ProjectM playlist). */
+export interface RemotePlaylist {
   id: string
   name: string
   artwork?: string
   owner: string
   total: number
+}
+
+export interface Lyrics {
+  instrumental: boolean
+  /** time-synced lines (seconds), when available */
+  synced: { time: number; text: string }[] | null
+  plain: string | null
 }
 
 export interface SpotifyPlayback {

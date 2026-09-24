@@ -214,3 +214,17 @@ export function SourceBadge({ source, size = 16 }: { source: SourceId; size?: nu
     </svg>
   )
 }
+
+export const NowPlayingIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    <path d="M14 4v16" />
+    <path d="M16.5 9h2M16.5 12h2" />
+  </Svg>
+)
+export const HomeIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 10.5 12 3l9 7.5" />
+    <path d="M5 9v11h5v-6h4v6h5V9" />
+  </Svg>
+)

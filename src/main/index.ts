@@ -5,7 +5,8 @@ import { Library } from './library'
 import { handleMedia } from './media'
 import { SoundCloud } from './sources/soundcloud'
 import { Spotify } from './sources/spotify'
-import type { StreamingSource } from './sources/types'
+import type { AccountSource, StreamingSource } from './sources/types'
+import { getLyrics } from './lyrics'
 import { YouTubeMusic } from './sources/youtube'
 import type { Playlist, ScanProgress, SourceId } from '../shared/types'
 
@@ -20,11 +21,18 @@ const library = new Library(dataDir)
 const playlists = new JsonFile<Playlist[]>(join(dataDir, 'playlists.json'), [])
 const youtube = new YouTubeMusic(join(dataDir, 'cache'))
 const spotify = new Spotify(join(dataDir, 'spotify.json'))
-const streaming: Partial<Record<SourceId, StreamingSource>> = { youtube, soundcloud: new SoundCloud(), spotify }
+const soundcloud = new SoundCloud()
+const streaming: Partial<Record<SourceId, StreamingSource>> = { youtube, soundcloud, spotify }
+const accounts: Partial<Record<SourceId, AccountSource>> = { youtube, soundcloud, spotify }
 
 function streamingSource(id: SourceId) {
   const source = streaming[id]
   if (!source) throw new Error(`${id} is not connected`)
+  return source
+}
+function account(id: SourceId) {
+  const source = accounts[id]
+  if (!source) throw new Error(`${id} has no account support`)
   return source
 }
 let win: BrowserWindow | null = null
@@ -88,15 +96,20 @@ ipcMain.handle('library:showInFolder', (_, id: string) => {
 })
 ipcMain.handle('sources:search', (_, source: SourceId, query: string) => streamingSource(source).search(query))
 ipcMain.handle('sources:resolve', (_, source: SourceId, id: string) => streamingSource(source).resolve(id))
-ipcMain.handle('spotify:status', () => spotify.status())
-ipcMain.handle('spotify:login', (_, clientId: string) => spotify.login(clientId))
-ipcMain.handle('spotify:logout', async () => {
-  await spotify.logout()
-  return spotify.status()
+ipcMain.handle('sources:match', (_, t: { title: string; artist: string; duration: number }) => youtube.match(t))
+ipcMain.handle('account:status', (_, s: SourceId) => account(s).status())
+ipcMain.handle('account:login', (_, s: SourceId, arg?: string) => account(s).login(arg))
+ipcMain.handle('account:logout', async (_, s: SourceId) => {
+  await account(s).logout()
+  return account(s).status()
 })
-ipcMain.handle('spotify:liked', () => spotify.likedSongs())
-ipcMain.handle('spotify:playlists', () => spotify.playlists())
-ipcMain.handle('spotify:playlistTracks', (_, id: string) => spotify.playlistTracks(id))
+ipcMain.handle('account:liked', (_, s: SourceId) => account(s).liked())
+ipcMain.handle('account:top', (_, s: SourceId) => (s === 'spotify' ? spotify.top() : account(s).liked()))
+ipcMain.handle('account:playlists', (_, s: SourceId) => account(s).playlists())
+ipcMain.handle('account:playlistTracks', (_, s: SourceId, id: string) => account(s).playlistTracks(id))
+ipcMain.handle('lyrics:get', (_, t: { title: string; artist: string; album: string; duration: number }) =>
+  getLyrics(t.title, t.artist, t.album, t.duration),
+)
 ipcMain.handle('spotify:play', (_, id: string, positionMs?: number) => spotify.play(id, positionMs))
 ipcMain.handle('spotify:pause', () => spotify.pause())
 ipcMain.handle('spotify:resume', () => spotify.resume())

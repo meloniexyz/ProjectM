@@ -1,15 +1,18 @@
 import vm from 'node:vm'
 import { join } from 'node:path'
 import { Innertube, Log, Platform, UniversalCache } from 'youtubei.js'
-import type { Track } from '../../shared/types'
+import type { AccountStatus, RemotePlaylist, Track } from '../../shared/types'
+import { accountSession, clearAccountSession, openLoginWindow } from './login-window'
 import { PoTokenMinter } from './potoken'
-import { UA, type StreamInfo, type StreamingSource } from './types'
+import { UA, type AccountSource, type StreamInfo, type StreamingSource } from './types'
 
 // Clients tried in order when fetching audio. YouTube changes which ones work every so often;
 // if playback breaks, reordering this list (or `npm update youtubei.js`) is usually the fix.
 const CLIENTS = ['YTMUSIC', 'IOS', 'MWEB'] as const
 /** Max bytes fetched per range request; YouTube throttles/refuses huge open-ended ranges. */
 const CHUNK = 8 * 1024 * 1024
+const PARTITION = 'persist:account-youtube'
+const LOGIN_COOKIES = ['SAPISID', '__Secure-3PAPISID']
 
 interface ResolvedStream {
   url: string
@@ -35,9 +38,63 @@ function bigThumb(url?: string) {
   return url.replace(/=w\d+-h\d+/, '=w544-h544').replace(/\/(default|mqdefault|hqdefault)\.jpg/, '/hqdefault.jpg')
 }
 
-export class YouTubeMusic implements StreamingSource {
+/** Shape shared by search results and playlist rows (MusicResponsiveListItem). */
+interface ListItem {
+  id?: string
+  title?: string
+  artists?: { name: string }[]
+  author?: { name: string }
+  album?: { name?: string }
+  duration?: { seconds: number }
+  thumbnails?: { url: string }[]
+}
+
+/** Shape of library grid cards (MusicTwoRowItem). */
+interface CardItem {
+  id?: string
+  item_type?: string
+  title?: { toString(): string }
+  subtitle?: { toString(): string }
+  thumbnail?: { url: string }[]
+}
+
+function toTrack(s: ListItem): Track | null {
+  if (!s.id || !s.title) return null
+  return {
+    uid: `youtube:${s.id}`,
+    source: 'youtube',
+    id: s.id,
+    title: s.title,
+    artist: s.artists?.map((a) => a.name).join(', ') || s.author?.name || 'Unknown Artist',
+    album: s.album?.name ?? 'YouTube Music',
+    duration: s.duration?.seconds ?? 0,
+    artwork: bigThumb(s.thumbnails?.[0]?.url),
+  }
+}
+
+/** Lowercase words without brackets/punctuation, for fuzzy matching. */
+const words = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/\(.*?\)|\[.*?\]/g, ' ')
+    .replace(/\b(feat|ft)\b\.?/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+
+/** 0..1: how many words the two strings share. */
+function overlap(a: string, b: string) {
+  const wa = new Set(words(a))
+  const wb = words(b)
+  if (!wa.size || !wb.length) return 0
+  return wb.filter((w) => wa.has(w)).length / Math.max(wa.size, wb.length)
+}
+
+export class YouTubeMusic implements StreamingSource, AccountSource {
   private client: Promise<Innertube> | null = null
   private streams = new Map<string, ResolvedStream>()
+  private userName: string | null = null
   private poTokens = new PoTokenMinter(async () => {
     const res = await (await this.yt()).getAttestationChallenge('ENGAGEMENT_TYPE_UNBOUND')
     const bg = res.bg_challenge
@@ -48,41 +105,144 @@ export class YouTubeMusic implements StreamingSource {
 
   constructor(private readonly cacheDir: string) {}
 
+  /** The signed-in cookie header, if the user connected their account. */
+  private async cookie(): Promise<string | undefined> {
+    const cookies = await accountSession(PARTITION).cookies.get({ url: 'https://music.youtube.com' })
+    if (!cookies.some((c) => LOGIN_COOKIES.includes(c.name))) return undefined
+    return cookies.map((c) => `${c.name}=${c.value}`).join('; ')
+  }
+
   private yt() {
-    this.client ??= Innertube.create({
-      generate_session_locally: true,
-      retrieve_player: true,
-      user_agent: UA,
-      cache: new UniversalCache(true, join(this.cacheDir, 'youtube')),
-    }).catch((err) => {
+    this.client ??= (async () =>
+      Innertube.create({
+        generate_session_locally: true,
+        retrieve_player: true,
+        user_agent: UA,
+        cookie: await this.cookie(),
+        cache: new UniversalCache(true, join(this.cacheDir, 'youtube')),
+      }))().catch((err) => {
       this.client = null // retry next time
       throw err
     })
     return this.client
   }
 
+  // ---------- account ----------
+
+  async status(): Promise<AccountStatus> {
+    return { connected: !!(await this.cookie()), userName: this.userName }
+  }
+
+  async login(): Promise<AccountStatus> {
+    await openLoginWindow({
+      partition: PARTITION,
+      title: 'Sign in to YouTube Music',
+      url: 'https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fmusic.youtube.com%2F',
+      isDone: (cookies, url) =>
+        url.startsWith('https://music.youtube.com') &&
+        cookies.some((c) => LOGIN_COOKIES.includes(c.name) && (c.domain ?? '').includes('youtube.com')),
+    })
+    this.client = null // rebuild with the new cookies
+    this.streams.clear()
+    try {
+      const info = await (await this.yt()).account.getInfo()
+      const first = (info.contents?.contents as unknown as { account_name?: { toString(): string } }[] | undefined)?.[0]
+      this.userName = first?.account_name?.toString() ?? null
+    } catch {
+      // name is cosmetic
+    }
+    return this.status()
+  }
+
+  async logout() {
+    await clearAccountSession(PARTITION)
+    this.client = null
+    this.userName = null
+    this.streams.clear()
+  }
+
+  private async signedIn() {
+    if (!(await this.cookie())) throw new Error('YouTube Music account is not connected')
+    return this.yt()
+  }
+
+  liked() {
+    return this.playlistTracks('LM') // YouTube Music's special "Liked music" playlist
+  }
+
+  async playlists(): Promise<RemotePlaylist[]> {
+    const yt = await this.signedIn()
+    let library = await yt.music.getLibrary()
+    const filter = library.filters.find((f) => /playlist/i.test(f))
+    if (filter) library = await library.applyFilter(filter)
+
+    const out: RemotePlaylist[] = []
+    const collect = (section: unknown) => {
+      const s = section as { items?: CardItem[]; contents?: CardItem[] }
+      for (const it of s.items ?? s.contents ?? []) {
+        if (it.item_type !== 'playlist' || !it.id) continue
+        const id = it.id.replace(/^VL/, '')
+        if (id === 'LM' || out.some((p) => p.id === id)) continue // liked songs has its own tab
+        const sub = it.subtitle?.toString() ?? ''
+        out.push({
+          id,
+          name: it.title?.toString() ?? 'Playlist',
+          artwork: bigThumb(it.thumbnail?.[0]?.url),
+          owner: sub.split('•')[0]?.trim() ?? '',
+          total: Number(sub.match(/([\d.,]+)\s+\S+\s*$/)?.[1]?.replace(/[.,]/g, '')) || 0,
+        })
+      }
+    }
+    for (const section of library.contents ?? []) collect(section)
+    if (library.has_continuation) {
+      let page = await library.getContinuation()
+      collect(page.contents)
+      for (let i = 0; i < 10 && page.has_continuation; i++) {
+        page = await page.getContinuation()
+        collect(page.contents)
+      }
+    }
+    return out
+  }
+
+  async playlistTracks(id: string): Promise<Track[]> {
+    const yt = await this.signedIn()
+    let page = await yt.music.getPlaylist(id)
+    const items: ListItem[] = [...(page.items as unknown as ListItem[])]
+    for (let i = 0; i < 100 && page.has_continuation; i++) {
+      page = await page.getContinuation()
+      items.push(...(page.items as unknown as ListItem[]))
+    }
+    return items.map(toTrack).filter((t): t is Track => !!t)
+  }
+
+  // ---------- search / matching ----------
+
   async search(query: string, limit = 30): Promise<Track[]> {
     const yt = await this.yt()
     const res = await yt.music.search(query, { type: 'song' })
-    const songs = res.songs?.contents ?? []
-    const tracks: Track[] = []
-    for (const s of songs) {
-      if (!s.id) continue
-      const artist = s.artists?.map((a) => a.name).join(', ') || s.author?.name || 'Unknown Artist'
-      tracks.push({
-        uid: `youtube:${s.id}`,
-        source: 'youtube',
-        id: s.id,
-        title: s.title ?? 'Untitled',
-        artist,
-        album: s.album?.name ?? 'YouTube Music',
-        duration: s.duration?.seconds ?? 0,
-        artwork: bigThumb(s.thumbnails?.[0]?.url),
-      })
-      if (tracks.length >= limit) break
-    }
-    return tracks
+    const songs = (res.songs?.contents ?? []) as unknown as ListItem[]
+    return songs
+      .map(toTrack)
+      .filter((t): t is Track => !!t)
+      .slice(0, limit)
   }
+
+  /** Finds the same song on YouTube Music (used when a Spotify song can't play through Spotify). */
+  async match(t: { title: string; artist: string; duration: number }): Promise<Track | null> {
+    const artist = t.artist.split(',')[0].trim()
+    const candidates = await this.search(`${artist} ${t.title}`, 10)
+    let best: { track: Track; score: number } | null = null
+    for (const c of candidates) {
+      const dur = t.duration && c.duration ? Math.abs(t.duration - c.duration) : 0
+      if (dur > 15) continue
+      const score = overlap(t.title, c.title) * 2 + overlap(t.artist, c.artist) - dur / 10
+      if (!best || score > best.score) best = { track: c, score }
+    }
+    return best && best.score > 1 ? best.track : null
+  }
+
+  // ---------- streaming ----------
 
   /** Audio goes through our media:// proxy so we control ranges and can refresh expired URLs. */
   async resolve(id: string): Promise<StreamInfo> {
@@ -109,7 +269,7 @@ export class YouTubeMusic implements StreamingSource {
         const deciphered = new URL(await format.decipher(yt.session.player))
         if (poToken) deciphered.searchParams.set('pot', poToken)
         const url = deciphered.toString()
-        const expireParam = Number(new URL(url).searchParams.get('expire'))
+        const expireParam = Number(deciphered.searchParams.get('expire'))
         const stream: ResolvedStream = {
           url,
           mime: format.mime_type.split(';')[0],

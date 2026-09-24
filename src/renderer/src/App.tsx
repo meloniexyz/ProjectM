@@ -4,18 +4,36 @@ import { ContextMenuHost, Toasts } from './components/Overlays'
 import { PlayerBar } from './components/PlayerBar'
 import { QueuePanel } from './components/QueuePanel'
 import { Sidebar } from './components/Sidebar'
-import { SpotifyPlaylistView } from './components/SpotifyViews'
+import { RemotePlaylistView } from './components/AccountViews'
+import { HomeView } from './components/HomeView'
+import { NowPlaying } from './components/NowPlaying'
 import { AlbumsView, AlbumView, PlaylistView, SearchView, SongsView, SourceView } from './components/Views'
 import { initLibrary } from './lib/library'
-import { initSpotify } from './lib/spotify'
+import { initAccounts } from './lib/accounts'
 import { NavContext, ScrollContext, type Nav, type View } from './lib/nav'
 import { getPlayer, next, prev, setVolume, toggle } from './lib/player'
 
 const sameView = (a: View, b: View) => JSON.stringify(a) === JSON.stringify(b)
 
 export function App() {
-  const [stack, setStack] = useState<View[]>([{ kind: 'songs' }])
-  const [queueOpen, setQueueOpen] = useState(false)
+  const [stack, setStack] = useState<View[]>([{ kind: 'home' }])
+  const [panel, setPanel] = useState<'queue' | 'nowPlaying' | null>(() => {
+    try {
+      return (localStorage.getItem('projectm.panel') as 'queue' | 'nowPlaying' | null) ?? 'nowPlaying'
+    } catch {
+      return 'nowPlaying'
+    }
+  })
+  const togglePanel = (p: 'queue' | 'nowPlaying') =>
+    setPanel((cur) => {
+      const next = cur === p ? null : p
+      try {
+        localStorage.setItem('projectm.panel', next ?? '')
+      } catch {
+        // not critical
+      }
+      return next
+    })
   const scrollRef = useRef<HTMLElement>(null)
   const view = stack[stack.length - 1]
 
@@ -31,7 +49,7 @@ export function App() {
 
   useEffect(() => {
     initLibrary()
-    initSpotify()
+    initAccounts()
   }, [])
 
   useEffect(() => {
@@ -78,8 +96,11 @@ export function App() {
           <main className="main" ref={scrollRef} key={JSON.stringify(view)}>
             <Page view={view} />
           </main>
-          {queueOpen && <QueuePanel onClose={() => setQueueOpen(false)} />}
-          <PlayerBar queueOpen={queueOpen} onToggleQueue={() => setQueueOpen((o) => !o)} />
+          {panel === 'queue' && <QueuePanel onClose={() => togglePanel('queue')} />}
+          {panel === 'nowPlaying' && (
+            <NowPlaying onClose={() => togglePanel('nowPlaying')} onOpenQueue={() => togglePanel('queue')} />
+          )}
+          <PlayerBar panel={panel} onTogglePanel={togglePanel} />
           <ContextMenuHost />
           <Toasts />
         </div>
@@ -102,7 +123,9 @@ function Page({ view }: { view: View }) {
       return <PlaylistView id={view.id} />
     case 'source':
       return <SourceView source={view.source} />
-    case 'spotifyPlaylist':
-      return <SpotifyPlaylistView id={view.id} name={view.name} />
+    case 'home':
+      return <HomeView />
+    case 'remotePlaylist':
+      return <RemotePlaylistView source={view.source} id={view.id} name={view.name} />
   }
 }

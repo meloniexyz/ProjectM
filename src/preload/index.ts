@@ -4,9 +4,10 @@ import type {
   Playlist,
   ScanProgress,
   SourceId,
+  AccountStatus,
+  Lyrics,
+  RemotePlaylist,
   SpotifyPlayback,
-  SpotifyPlaylist,
-  SpotifyStatus,
   StreamInfo,
   Track,
 } from '../shared/types'
@@ -29,14 +30,23 @@ const api = {
   sources: {
     search: (source: SourceId, query: string): Promise<Track[]> => ipcRenderer.invoke('sources:search', source, query),
     resolve: (source: SourceId, id: string): Promise<StreamInfo> => ipcRenderer.invoke('sources:resolve', source, id),
+    /** find the same song on YouTube Music */
+    match: (t: { title: string; artist: string; duration: number }): Promise<Track | null> =>
+      ipcRenderer.invoke('sources:match', t),
   },
+  accounts: {
+    status: (s: SourceId): Promise<AccountStatus> => ipcRenderer.invoke('account:status', s),
+    login: (s: SourceId, arg?: string): Promise<AccountStatus> => ipcRenderer.invoke('account:login', s, arg),
+    logout: (s: SourceId): Promise<AccountStatus> => ipcRenderer.invoke('account:logout', s),
+    liked: (s: SourceId): Promise<Track[]> => ipcRenderer.invoke('account:liked', s),
+    top: (s: SourceId): Promise<Track[]> => ipcRenderer.invoke('account:top', s),
+    playlists: (s: SourceId): Promise<RemotePlaylist[]> => ipcRenderer.invoke('account:playlists', s),
+    playlistTracks: (s: SourceId, id: string): Promise<Track[]> => ipcRenderer.invoke('account:playlistTracks', s, id),
+  },
+  lyrics: (t: { title: string; artist: string; album: string; duration: number }): Promise<Lyrics | null> =>
+    ipcRenderer.invoke('lyrics:get', t),
+  /** play controls for Spotify Connect */
   spotify: {
-    status: (): Promise<SpotifyStatus> => ipcRenderer.invoke('spotify:status'),
-    login: (clientId: string): Promise<SpotifyStatus> => ipcRenderer.invoke('spotify:login', clientId),
-    logout: (): Promise<SpotifyStatus> => ipcRenderer.invoke('spotify:logout'),
-    liked: (): Promise<Track[]> => ipcRenderer.invoke('spotify:liked'),
-    playlists: (): Promise<SpotifyPlaylist[]> => ipcRenderer.invoke('spotify:playlists'),
-    playlistTracks: (id: string): Promise<Track[]> => ipcRenderer.invoke('spotify:playlistTracks', id),
     play: (id: string, positionMs?: number): Promise<void> => ipcRenderer.invoke('spotify:play', id, positionMs),
     pause: (): Promise<void> => ipcRenderer.invoke('spotify:pause'),
     resume: (): Promise<void> => ipcRenderer.invoke('spotify:resume'),
