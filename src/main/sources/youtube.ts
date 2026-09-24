@@ -345,7 +345,11 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
         interval += 5000
         continue
       }
-      if (t.error === 'access_denied') throw new Error('You declined the sign-in on the Google page')
+      if (t.error === 'access_denied') {
+        throw new Error(
+          'Google blocked or declined the sign-in. If it said "Access blocked … has not completed the Google verification process", add your Gmail under Google Auth Platform → Audience → Test users, then sign in again.',
+        )
+      }
       throw new Error(`Google sign-in failed: ${t.error_description || t.error || res.status}`)
     }
     throw new Error('The sign-in code expired. Try again.')
