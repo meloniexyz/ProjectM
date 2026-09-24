@@ -55,7 +55,7 @@ export async function resolveStream(track: Track): Promise<StreamInfo> {
 /** Errors from the main process arrive as "Error invoking remote method 'x': Error: msg"; keep just msg. */
 export function cleanError(err: unknown): Error {
   const msg = err instanceof Error ? err.message : String(err)
-  return new Error(msg.replace(/^Error invoking remote method '[^']+': (w*Error: )?/, ''))
+  return new Error(msg.replace(/^Error invoking remote method '[^']+': (\w*Error: )?/, ''))
 }
 
 const searchCache = new Map<string, Promise<Track[]>>()
