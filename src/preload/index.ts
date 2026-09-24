@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { LibraryState, Playlist, ScanProgress } from '../shared/types'
+import type { LibraryState, Playlist, ScanProgress, SourceId, StreamInfo, Track } from '../shared/types'
 
 const api = {
   library: {
@@ -15,6 +15,10 @@ const api = {
         ipcRenderer.removeListener('library:progress', handler)
       }
     },
+  },
+  sources: {
+    search: (source: SourceId, query: string): Promise<Track[]> => ipcRenderer.invoke('sources:search', source, query),
+    resolve: (source: SourceId, id: string): Promise<StreamInfo> => ipcRenderer.invoke('sources:resolve', source, id),
   },
   playlists: {
     get: (): Promise<Playlist[]> => ipcRenderer.invoke('playlists:get'),

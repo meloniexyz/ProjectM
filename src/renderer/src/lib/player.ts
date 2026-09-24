@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
-import type { Track } from '../../../shared/types'
+import type Hls from 'hls.js'
+import type { StreamInfo, Track } from '../../../shared/types'
 import { shuffled } from './format'
 import { resolveStream } from './sources'
 import { toast } from './ui'
@@ -108,7 +109,7 @@ export function usePlayer<T>(select: (s: PlayerState) => T): T {
 export const getPlayer = () => state
 
 // ---------- audio engine ----------
-// All sources end up as a URL for this one <audio> element. A Spotify backend will slot in beside it later.
+// Local files, YouTube Music and SoundCloud all end up playing in this one <audio> element.
 
 const audio = new Audio()
 audio.preload = 'auto'
@@ -118,6 +119,34 @@ let loadedKey: number | null = null
 let loadSeq = 0
 /** pre-shuffle order, to restore when shuffle is turned off */
 let original: QueueItem[] | null = null
+/** active hls.js instance, for sources that stream in HLS segments (some SoundCloud tracks) */
+let hls: Hls | null = null
+
+function detachHls() {
+  hls?.destroy()
+  hls = null
+}
+
+/** Points the audio element at a stream. Returns false if a newer load() superseded this one. */
+async function attach(stream: StreamInfo, seq: number, track: Track) {
+  detachHls()
+  if (stream.kind === 'direct') {
+    audio.src = stream.url
+    return true
+  }
+  const { default: HlsClass } = await import('hls.js') // only loaded when first needed
+  if (seq !== loadSeq) return false
+  const instance = new HlsClass({ enableWorker: true })
+  hls = instance
+  instance.on(HlsClass.Events.ERROR, (_, data) => {
+    if (!data.fatal || hls !== instance) return
+    if (data.type === HlsClass.ErrorTypes.NETWORK_ERROR) instance.startLoad()
+    else fail(track, new Error(`stream error (${data.details})`))
+  })
+  instance.loadSource(stream.url)
+  instance.attachMedia(audio)
+  return true
+}
 
 const currentItem = () => state.queue[state.index]
 
@@ -131,6 +160,7 @@ async function load(autoplay: boolean) {
   const seq = ++loadSeq
   if (!item) {
     loadedKey = null
+    detachHls()
     audio.pause()
     audio.removeAttribute('src')
     audio.load()
@@ -141,15 +171,14 @@ async function load(autoplay: boolean) {
   emit({ position: 0, duration: item.track.duration, error: null, buffering: autoplay })
   setMediaSession(item.track)
 
-  let url: string
+  let stream: StreamInfo
   try {
-    url = await resolveStream(item.track)
+    stream = await resolveStream(item.track)
   } catch (err) {
     if (seq === loadSeq) fail(item.track, err)
     return
   }
-  if (seq !== loadSeq) return
-  audio.src = url
+  if (seq !== loadSeq || !(await attach(stream, seq, item.track))) return
   if (autoplay) audio.play().catch(() => {}) // real failures arrive via the 'error' event
 }
 
@@ -173,7 +202,7 @@ audio.addEventListener('durationchange', () => {
 })
 audio.addEventListener('error', () => {
   const item = currentItem()
-  if (item && loadedKey === item.key && audio.getAttribute('src')) {
+  if (item && loadedKey === item.key && (audio.getAttribute('src') || hls)) {
     fail(item.track, new Error(audio.error?.code === 4 ? 'file missing or format not supported' : 'playback error'))
   }
 })

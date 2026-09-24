@@ -160,7 +160,11 @@ export function TrackList({ tracks, playlistId, showAlbum = true, numbers = 'ind
                     className="link"
                     onClick={(e) => {
                       e.stopPropagation()
-                      nav.go({ kind: 'album', key: albumKey(track) })
+                      nav.go(
+                        track.source === 'local'
+                          ? { kind: 'album', key: albumKey(track) }
+                          : { kind: 'search', q: `${track.artist} ${track.album}` },
+                      )
                     }}
                   >
                     {track.album}

@@ -3,7 +3,10 @@ import { join } from 'node:path'
 import { JsonFile } from './json-file'
 import { Library } from './library'
 import { handleMedia } from './media'
-import type { Playlist, ScanProgress } from '../shared/types'
+import { SoundCloud } from './sources/soundcloud'
+import type { StreamingSource } from './sources/types'
+import { YouTubeMusic } from './sources/youtube'
+import type { Playlist, ScanProgress, SourceId } from '../shared/types'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
@@ -14,6 +17,14 @@ if (process.env.PROJECTM_DATA) app.setPath('userData', process.env.PROJECTM_DATA
 const dataDir = app.getPath('userData')
 const library = new Library(dataDir)
 const playlists = new JsonFile<Playlist[]>(join(dataDir, 'playlists.json'), [])
+const youtube = new YouTubeMusic(join(dataDir, 'cache'))
+const streaming: Partial<Record<SourceId, StreamingSource>> = { youtube, soundcloud: new SoundCloud() }
+
+function streamingSource(id: SourceId) {
+  const source = streaming[id]
+  if (!source) throw new Error(`${id} is not connected`)
+  return source
+}
 let win: BrowserWindow | null = null
 
 const BG = '#09090c'
@@ -73,6 +84,8 @@ ipcMain.handle('library:showInFolder', (_, id: string) => {
   const path = library.pathFor(id)
   if (path) shell.showItemInFolder(path)
 })
+ipcMain.handle('sources:search', (_, source: SourceId, query: string) => streamingSource(source).search(query))
+ipcMain.handle('sources:resolve', (_, source: SourceId, id: string) => streamingSource(source).resolve(id))
 ipcMain.handle('playlists:get', () => playlists.get())
 ipcMain.handle('playlists:save', (_, list: Playlist[]) => playlists.set(list))
 
@@ -80,7 +93,7 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark'
   Menu.setApplicationMenu(null)
   await Promise.all([library.load(), playlists.load()])
-  protocol.handle('media', (req) => handleMedia(req, library))
+  protocol.handle('media', (req) => handleMedia(req, library, youtube))
   createWindow()
   // Pick up files added/changed while the app was closed.
   library.rescan(progress)

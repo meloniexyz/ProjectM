@@ -1224,3 +1224,28 @@ p {
     transform: translateY(8px);
   }
 }
+
+/* ---------- search results ---------- */
+
+.results + .results {
+  margin-top: 4px;
+}
+.section-title .source-badge {
+  align-self: center;
+}
+.section-title .row {
+  color: var(--text-3);
+  font-size: 13px;
+}
+.result-error {
+  margin: 0 28px 16px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-2));
+  color: var(--text-2);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}

@@ -41,7 +41,11 @@ export function Sidebar() {
               <SourceBadge source={s} size={20} />,
               SOURCES[s].name,
               () => nav.go({ kind: 'source', source: s }),
-              isConnected(s) ? <span className="count">{count.toLocaleString()}</span> : <span className="pill">Soon</span>,
+              s === 'local' ? (
+                <span className="count">{count.toLocaleString()}</span>
+              ) : isConnected(s) ? undefined : (
+                <span className="pill">Soon</span>
+              ),
             )}
           </div>
         ))}

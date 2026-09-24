@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { SourceId } from '../../../shared/types'
+import type { SourceId, Track } from '../../../shared/types'
 import { cls, fmtTotal, norm, plural } from '../lib/format'
 import {
   addFolder,
@@ -16,7 +16,7 @@ import {
 } from '../lib/library'
 import { useNav } from '../lib/nav'
 import { playTracks } from '../lib/player'
-import { isConnected, SOURCE_ORDER, SOURCES } from '../lib/sources'
+import { isConnected, isStreaming, searchSource, SOURCE_ORDER, SOURCES, STREAMING_SOURCES } from '../lib/sources'
 import { useStore } from '../lib/store'
 import { Artwork, Empty, Hero, PlayActions, PlaylistArt } from './common'
 import { DiscIcon, FolderIcon, MusicIcon, PlayIcon, PlaylistIcon, PlusIcon, RefreshIcon, SearchIcon, SourceBadge, TrashIcon, XIcon } from './Icons'
@@ -66,7 +66,7 @@ function EmptyLibrary() {
       <button className="btn primary" onClick={addFolder}>
         <PlusIcon size={16} /> Add music folder
       </button>
-      <p className="hint">YouTube Music, SoundCloud and Spotify are coming next.</p>
+      <p className="hint">Or skip this and search YouTube Music and SoundCloud right away.</p>
     </Empty>
   )
 }
@@ -144,16 +144,34 @@ export function AlbumView({ albumKey }: { albumKey: string }) {
 
 // ---------- Search ----------
 
-export function SearchView({ initial }: { initial?: string }) {
+type Filter = 'all' | SourceId
+type Remote = { status: 'loading' | 'done' | 'error'; tracks: Track[]; error?: string }
+const PREVIEW = 5
+
+/** Debounces a fast-changing value (typing) so we don't hit the network on every key. */
+function useDebounced<T>(value: T, ms: number) {
+  const [v, setV] = useState(value)
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms)
+    return () => clearTimeout(t)
+  }, [value, ms])
+  return v
+}
+
+export function SearchView({ initial, source }: { initial?: string; source?: SourceId }) {
   const [q, setQ] = useState(initial ?? '')
+  const [filter, setFilter] = useState<Filter>(source ?? 'all')
+  const [remote, setRemote] = useState<Partial<Record<SourceId, Remote>>>({})
+  const [retry, setRetry] = useState(0)
   const tracks = useStore(lib, (s) => s.tracks)
+  const query = useDebounced(q.trim(), 350)
   const tokens = useMemo(() => norm(q).split(/\s+/).filter(Boolean), [q])
 
-  const songs = useMemo(
+  const localSongs = useMemo(
     () => (tokens.length ? sortedLibrary(tracks).filter((t) => matches(t, tokens)) : []),
     [tracks, tokens],
   )
-  const albums = useMemo(
+  const localAlbums = useMemo(
     () =>
       tokens.length
         ? groupAlbums(tracks)
@@ -163,6 +181,36 @@ export function SearchView({ initial }: { initial?: string }) {
     [tracks, tokens],
   )
 
+  const remoteSources = filter === 'all' ? STREAMING_SOURCES : isStreaming(filter) ? [filter] : []
+  const remoteKey = remoteSources.join(',')
+
+  useEffect(() => {
+    if (!query) return setRemote({})
+    let live = true
+    for (const s of remoteKey.split(',').filter(Boolean) as SourceId[]) {
+      setRemote((r) => ({ ...r, [s]: { status: 'loading', tracks: r[s]?.tracks ?? [] } }))
+      searchSource(s, query).then(
+        (found) => live && setRemote((r) => ({ ...r, [s]: { status: 'done', tracks: found } })),
+        (err) => live && setRemote((r) => ({ ...r, [s]: { status: 'error', tracks: [], error: err.message } })),
+      )
+    }
+    return () => {
+      live = false
+    }
+  }, [query, remoteKey, retry])
+
+  const showLocal = filter === 'all' || filter === 'local'
+
+  // Enter plays the first section that has results
+  const firstResults = [...(showLocal ? [localSongs] : []), ...remoteSources.map((s) => remote[s]?.tracks ?? [])].find(
+    (list) => list.length,
+  )
+
+  const nothing =
+    tokens.length > 0 &&
+    (!showLocal || (!localSongs.length && !localAlbums.length)) &&
+    remoteSources.every((s) => remote[s]?.status === 'done' && !remote[s]!.tracks.length)
+
   return (
     <>
       <div className="search-bar">
@@ -171,11 +219,11 @@ export function SearchView({ initial }: { initial?: string }) {
           <input
             autoFocus
             value={q}
-            placeholder="Songs, artists, albums"
+            placeholder={filter === 'all' ? 'Songs, artists, albums' : `Search ${SOURCES[filter].name}`}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') setQ('')
-              if (e.key === 'Enter' && songs.length) playTracks(songs)
+              if (e.key === 'Enter' && firstResults) playTracks(firstResults)
             }}
           />
           {q && (
@@ -185,12 +233,16 @@ export function SearchView({ initial }: { initial?: string }) {
           )}
         </label>
         <div className="chips">
+          <button className={cls('chip', filter === 'all' && 'on')} onClick={() => setFilter('all')}>
+            All
+          </button>
           {SOURCE_ORDER.map((s) => (
             <button
               key={s}
-              className={cls('chip', isConnected(s) && 'on')}
+              className={cls('chip', filter === s && 'on')}
               disabled={!isConnected(s)}
               title={isConnected(s) ? undefined : 'Coming soon'}
+              onClick={() => setFilter(s)}
             >
               <SourceBadge source={s} size={14} /> {SOURCES[s].name}
             </button>
@@ -199,41 +251,110 @@ export function SearchView({ initial }: { initial?: string }) {
       </div>
 
       {!tokens.length ? (
-        <Empty icon={<SearchIcon size={30} />} title="Search your music">
-          <p>Find songs, artists and albums. Press Enter to play everything that matches.</p>
+        <Empty
+          icon={<SearchIcon size={30} />}
+          title={filter === 'all' ? 'Search everything' : `Search ${SOURCES[filter].name}`}
+        >
+          <p>
+            {filter === 'all'
+              ? 'One search across your files, YouTube Music and SoundCloud. Press Enter to play the top results.'
+              : 'Press Enter to play the results. Anything you find can go in your playlists and queue.'}
+          </p>
         </Empty>
-      ) : !songs.length && !albums.length ? (
+      ) : nothing ? (
         <Empty icon={<SearchIcon size={30} />} title={`No results for "${q}"`}>
           <p>Check the spelling, or try fewer words.</p>
         </Empty>
       ) : (
         <>
-          {albums.length > 0 && (
+          {showLocal && localAlbums.length > 0 && (
             <>
-              <h2 className="section-title">Albums</h2>
+              <h2 className="section-title">Albums in your library</h2>
               <div className="grid">
-                {albums.map((a) => (
+                {(filter === 'all' ? localAlbums.slice(0, 6) : localAlbums).map((a) => (
                   <AlbumCard key={a.key} album={a} />
                 ))}
               </div>
             </>
           )}
-          {songs.length > 0 && (
-            <>
-              <div className="section-title with-actions">
-                <h2>Songs</h2>
-                <span>{plural(songs.length, 'result')}</span>
-                <div className="grow" />
-                <button className="btn" onClick={() => playTracks(songs)}>
-                  <PlayIcon size={14} /> Play all
-                </button>
-              </div>
-              <TrackList tracks={songs} />
-            </>
+          {showLocal && localSongs.length > 0 && (
+            <ResultSection
+              source="local"
+              tracks={localSongs}
+              preview={filter === 'all'}
+              onSeeAll={() => setFilter('local')}
+            />
           )}
+          {remoteSources.map((s) => {
+            const r = remote[s]
+            if (!r || (r.status === 'done' && !r.tracks.length)) return null
+            return (
+              <ResultSection
+                key={s}
+                source={s}
+                tracks={r.tracks}
+                preview={filter === 'all'}
+                loading={r.status === 'loading'}
+                error={r.error}
+                onRetry={() => setRetry((n) => n + 1)}
+                onSeeAll={() => setFilter(s)}
+              />
+            )
+          })}
         </>
       )}
     </>
+  )
+}
+
+function ResultSection(props: {
+  source: SourceId
+  tracks: Track[]
+  preview: boolean
+  loading?: boolean
+  error?: string
+  onSeeAll(): void
+  onRetry?(): void
+}) {
+  const { source, tracks, preview } = props
+  const shown = preview ? tracks.slice(0, PREVIEW) : tracks
+  return (
+    <section className="results">
+      <div className="section-title with-actions">
+        <SourceBadge source={source} size={22} />
+        <h2>{SOURCES[source].name}</h2>
+        {props.loading ? (
+          <span className="row">
+            <RefreshIcon size={13} className="spin" /> Searching…
+          </span>
+        ) : (
+          !props.error && <span>{plural(tracks.length, 'result')}</span>
+        )}
+        <div className="grow" />
+        {preview && tracks.length > PREVIEW && (
+          <button className="btn small ghost" onClick={props.onSeeAll}>
+            See all
+          </button>
+        )}
+        {tracks.length > 0 && (
+          <button className="btn small" onClick={() => playTracks(tracks)}>
+            <PlayIcon size={12} /> Play all
+          </button>
+        )}
+      </div>
+      {props.error ? (
+        <div className="result-error">
+          <span>
+            Couldn't search {SOURCES[source].name}: {props.error}
+          </span>
+          <button className="btn small" onClick={props.onRetry}>
+            Try again
+          </button>
+        </div>
+      ) : (
+        shown.length > 0 && <TrackList tracks={shown} />
+      )}
+    </section>
   )
 }
 
@@ -317,7 +438,9 @@ export function PlaylistView({ id }: { id: string }) {
 // ---------- Sources ----------
 
 export function SourceView({ source }: { source: SourceId }) {
-  return source === 'local' ? <LocalSource /> : <ComingSoon source={source} />
+  if (source === 'local') return <LocalSource />
+  if (isStreaming(source)) return <SearchView source={source} />
+  return <ComingSoon source={source} />
 }
 
 function LocalSource() {

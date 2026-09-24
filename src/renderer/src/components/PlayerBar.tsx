@@ -40,7 +40,16 @@ export function PlayerBar({ queueOpen, onToggleQueue }: { queueOpen: boolean; on
             <Artwork src={track.artwork} size={56} />
             <div className="np-text">
               <div className="t">
-                <span className="link" onClick={() => nav.go({ kind: 'album', key: albumKey(track) })}>
+                <span
+                  className="link"
+                  onClick={() =>
+                    nav.go(
+                      track.source === 'local'
+                        ? { kind: 'album', key: albumKey(track) }
+                        : { kind: 'search', q: `${track.artist} ${track.title}` },
+                    )
+                  }
+                >
                   {track.title}
                 </span>
               </div>

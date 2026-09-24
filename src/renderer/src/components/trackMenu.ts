@@ -3,6 +3,7 @@ import { plural } from '../lib/format'
 import { addToPlaylist, albumKey, createPlaylist, lib, removeFromPlaylist } from '../lib/library'
 import type { Nav } from '../lib/nav'
 import { addToQueue, playNext, playTracks } from '../lib/player'
+import { webUrl } from '../lib/sources'
 import { toast, type MenuItem } from '../lib/ui'
 
 /** Right-click menu for one or more tracks. */
@@ -46,11 +47,15 @@ export function trackMenu(tracks: Track[], nav: Nav, inPlaylist?: { id: string; 
   }
   if (one) {
     items.push({ separator: true })
-    items.push({ label: 'Go to album', onClick: () => nav.go({ kind: 'album', key: albumKey(one) }) })
+    if (one.source === 'local') {
+      items.push({ label: 'Go to album', onClick: () => nav.go({ kind: 'album', key: albumKey(one) }) })
+    }
     items.push({ label: 'Go to artist', onClick: () => nav.go({ kind: 'search', q: one.artist }) })
     if (one.source === 'local') {
       items.push({ label: 'Show in folder', onClick: () => window.api.library.showInFolder(one.id) })
     }
+    const url = webUrl(one)
+    if (url) items.push({ label: 'Open in browser', onClick: () => window.open(url) })
   }
   return items
 }

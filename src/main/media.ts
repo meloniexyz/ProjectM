@@ -3,6 +3,7 @@ import { stat } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import type { Library } from './library'
+import type { YouTubeMusic } from './sources/youtube'
 
 const MIME: Record<string, string> = {
   '.mp3': 'audio/mpeg',
@@ -20,14 +21,22 @@ const MIME: Record<string, string> = {
 }
 
 /**
- * media://local/<trackId>  -> the audio file of a library track
- * media://art/<hash>.<ext> -> cached cover art
+ * media://local/<trackId>   -> the audio file of a library track
+ * media://art/<hash>.<ext>  -> cached cover art
+ * media://youtube/<videoId> -> proxied YouTube audio stream
  * Only files known to the library are served; arbitrary paths are never exposed.
  */
-export async function handleMedia(req: Request, library: Library): Promise<Response> {
+export async function handleMedia(req: Request, library: Library, youtube: YouTubeMusic): Promise<Response> {
   const url = new URL(req.url)
   const name = decodeURIComponent(url.pathname.slice(1))
 
+  if (url.host === 'youtube') {
+    try {
+      return await youtube.serve(name, req.headers.get('range'))
+    } catch (err) {
+      return new Response(String((err as Error).message ?? err), { status: 502 })
+    }
+  }
   if (url.host === 'local') {
     const path = library.pathFor(name)
     if (path) return serveFile(path, req.headers.get('range'))

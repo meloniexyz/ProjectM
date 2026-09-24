@@ -37,3 +37,9 @@ export interface ScanProgress {
   done: number
   total: number
 }
+
+/** How to play a streaming track: 'direct' in <audio> as-is, 'hls' via hls.js. */
+export interface StreamInfo {
+  url: string
+  kind: 'direct' | 'hls'
+}
