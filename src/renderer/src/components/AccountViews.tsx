@@ -112,6 +112,16 @@ function ConnectCard({ source }: { source: SourceId }) {
   return source === 'youtube' ? <YouTubeSignIn /> : <SoundCloudProfile />
 }
 
+/** Appears after a few seconds of waiting, so a stalled request doesn't look like a frozen app. */
+function SlowHint() {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), 8000)
+    return () => clearTimeout(t)
+  }, [])
+  return slow ? <span className="hint">taking longer than usual, it gives up by itself after 30s</span> : null
+}
+
 /** SoundCloud likes and playlists are public: find your profile and pick it. No login needed. */
 function SoundCloudProfile() {
   const [query, setQuery] = useState('')
@@ -283,6 +293,10 @@ function YouTubeSignIn() {
           ) : (
             <div className="waiting">
               <RefreshIcon size={13} className="spin" /> Getting a sign-in code from Google…
+              <SlowHint />
+              <button className="link-btn" onClick={() => cancelSignIn().then(() => setBusy(false))}>
+                Cancel
+              </button>
             </div>
           )}
         </div>

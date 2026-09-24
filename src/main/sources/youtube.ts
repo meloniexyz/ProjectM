@@ -36,6 +36,27 @@ const GOOGLE_OAUTH = 'https://oauth2.googleapis.com'
 const YOUTUBE_SCOPE = 'https://www.googleapis.com/auth/youtube'
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/**
+ * POST to Google's OAuth server with a time limit and one retry: a stalled connection
+ * must not leave the sign-in spinning forever.
+ */
+async function googlePost(path: string, body: Record<string, string>): Promise<Response> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await fetch(`${GOOGLE_OAUTH}${path}`, {
+        method: 'POST',
+        body: new URLSearchParams(body),
+        signal: AbortSignal.timeout(15_000),
+      })
+    } catch (err) {
+      lastError = err
+    }
+  }
+  const e = lastError as Error & { cause?: { code?: string } }
+  throw new Error(`Couldn't reach Google (${e.name === 'TimeoutError' ? 'timed out' : (e.cause?.code ?? e.message)}). Check your connection and try again.`)
+}
+
 interface GoogleTokenResponse {
   access_token?: string
   refresh_token?: string
@@ -225,7 +246,11 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     } else {
       const yt = await Innertube.create({ retrieve_player: false })
       tokens = await new Promise<OAuth2Tokens>((resolve, reject) => {
-        yt.session.on('auth-pending', (d) => this.onDeviceCode({ code: d.user_code, url: d.verification_url }))
+        const noCode = setTimeout(() => reject(new Error("Google didn't send a sign-in code (timed out)")), 30_000)
+        yt.session.on('auth-pending', (d) => {
+          clearTimeout(noCode)
+          this.onDeviceCode({ code: d.user_code, url: d.verification_url })
+        })
         yt.session.on('auth', ({ credentials }) => (credentials ? resolve(credentials) : reject(new Error('no credentials'))))
         yt.session.on('auth-error', (err) => reject(err))
         yt.session.signIn().catch(reject)
@@ -278,10 +303,7 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
 
   /** Google's "sign in on another device" flow with the user's own OAuth client. */
   private async deviceFlow(client: { client_id: string; client_secret: string }, attempt: number): Promise<OAuth2Tokens> {
-    const start = await fetch(`${GOOGLE_OAUTH}/device/code`, {
-      method: 'POST',
-      body: new URLSearchParams({ client_id: client.client_id, scope: YOUTUBE_SCOPE }),
-    })
+    const start = await googlePost('/device/code', { client_id: client.client_id, scope: YOUTUBE_SCOPE })
     const d = (await start.json()) as {
       device_code?: string
       user_code?: string
@@ -301,15 +323,13 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     while (Date.now() < deadline) {
       await sleep(interval)
       if (attempt !== this.loginAttempt) throw new Error('Sign-in was cancelled')
-      const res = await fetch(`${GOOGLE_OAUTH}/token`, {
-        method: 'POST',
-        body: new URLSearchParams({
-          client_id: client.client_id,
-          client_secret: client.client_secret,
-          device_code: d.device_code,
-          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-        }),
-      })
+      const res = await googlePost('/token', {
+        client_id: client.client_id,
+        client_secret: client.client_secret,
+        device_code: d.device_code,
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+      }).catch(() => null) // a dropped poll just means we ask again next round
+      if (!res) continue
       const t = (await res.json()) as GoogleTokenResponse
       if (t.access_token && t.refresh_token) {
         return {
@@ -337,14 +357,11 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     if (!saved) throw new Error('not signed in')
     if (saved.client) {
       if (Date.parse(saved.expiry_date) - Date.now() > 120_000) return saved.access_token
-      const res = await fetch(`${GOOGLE_OAUTH}/token`, {
-        method: 'POST',
-        body: new URLSearchParams({
-          client_id: saved.client.client_id,
-          client_secret: saved.client.client_secret,
-          refresh_token: saved.refresh_token,
-          grant_type: 'refresh_token',
-        }),
+      const res = await googlePost('/token', {
+        client_id: saved.client.client_id,
+        client_secret: saved.client.client_secret,
+        refresh_token: saved.refresh_token,
+        grant_type: 'refresh_token',
       })
       const t = (await res.json()) as GoogleTokenResponse
       if (!t.access_token) {
