@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import type Hls from 'hls.js'
 import type { StreamInfo, Track } from '../../../shared/types'
 import { shuffled } from './format'
-import { resolveStream } from './sources'
+import { cleanError, resolveStream } from './sources'
 import { toast } from './ui'
 
 export interface QueueItem {
@@ -109,7 +109,8 @@ export function usePlayer<T>(select: (s: PlayerState) => T): T {
 export const getPlayer = () => state
 
 // ---------- audio engine ----------
-// Local files, YouTube Music and SoundCloud all end up playing in this one <audio> element.
+// Local files, YouTube Music and SoundCloud play in this one <audio> element ("audio" engine).
+// Spotify songs play in the user's Spotify app via Spotify Connect ("spotify" engine, below).
 
 const audio = new Audio()
 audio.preload = 'auto'
@@ -150,26 +151,55 @@ async function attach(stream: StreamInfo, seq: number, track: Track) {
 
 const currentItem = () => state.queue[state.index]
 
+let engine: 'audio' | 'spotify' = 'audio'
+let spotifyVolumeTimer = 0
+
 function applyVolume() {
   audio.volume = state.muted ? 0 : state.volume ** 2 // squared feels linear to the ear
+  if (engine === 'spotify') {
+    clearTimeout(spotifyVolumeTimer)
+    spotifyVolumeTimer = window.setTimeout(() => sp.volume(spotifyVolume()).catch(() => {}), 250)
+  }
 }
 applyVolume()
+
+/** Our 0..1 volume as Spotify's 0..100, on the same curve as the audio element. */
+const spotifyVolume = () => (state.muted ? 0 : Math.round(state.volume ** 2 * 100))
+
+function stopAudio() {
+  detachHls()
+  audio.pause()
+  audio.removeAttribute('src')
+  audio.load()
+}
 
 async function load(autoplay: boolean) {
   const item = currentItem()
   const seq = ++loadSeq
   if (!item) {
     loadedKey = null
-    detachHls()
-    audio.pause()
-    audio.removeAttribute('src')
-    audio.load()
+    spotifyStop()
+    stopAudio()
     emit({ playing: false, buffering: false, position: 0, duration: 0 })
     return
   }
   loadedKey = item.key
   emit({ position: 0, duration: item.track.duration, error: null, buffering: autoplay })
   setMediaSession(item.track)
+
+  if (item.track.source === 'spotify') {
+    stopAudio()
+    engine = 'spotify'
+    if (!autoplay) {
+      loadedKey = null // nothing sent to Spotify yet; toggle() will start it
+      spotifyStop()
+      emit({ playing: false, buffering: false })
+      return
+    }
+    return spotifyStart(item.track, seq)
+  }
+  if (engine === 'spotify') spotifyStop()
+  engine = 'audio'
 
   let stream: StreamInfo
   try {
@@ -192,8 +222,115 @@ function fail(track: Track, err: unknown) {
   }
 }
 
-audio.addEventListener('play', () => emit({ playing: true }, false))
-audio.addEventListener('pause', () => emit({ playing: false }, false))
+// ---------- Spotify engine ----------
+// We tell the Spotify app what to play, then poll its state once a second. Between polls the
+// position is extrapolated so the seek bar moves smoothly.
+
+const sp = window.api.spotify
+let spTimer = 0
+let spPoll = 0
+let spTrackId: string | null = null
+let spSeenPlaying = false
+let spPlaying = false
+let spUserPaused = false
+let spPos = 0 // seconds, as of spPosAt
+let spPosAt = 0
+
+const spNow = () => (spPlaying ? spPos + (performance.now() - spPosAt) / 1000 : spPos)
+
+function spotifyStop() {
+  clearInterval(spTimer)
+  clearInterval(spPoll)
+  spTimer = spPoll = 0
+  if (engine === 'spotify' && spTrackId) sp.pause().catch(() => {})
+  spTrackId = null
+  spPlaying = false
+}
+
+async function spotifyStart(track: Track, seq: number, positionSec = 0) {
+  clearInterval(spTimer)
+  clearInterval(spPoll)
+  try {
+    await sp.play(track.id, positionSec * 1000)
+  } catch (err) {
+    if (seq === loadSeq) fail(track, cleanError(err))
+    return
+  }
+  if (seq !== loadSeq) return
+  sp.volume(spotifyVolume()).catch(() => {})
+  spTrackId = track.id
+  spSeenPlaying = false
+  spUserPaused = false
+  spPlaying = true
+  spPos = positionSec
+  spPosAt = performance.now()
+  emit({ playing: true, buffering: false }, false)
+
+  // smooth progress + end-of-song detection
+  spTimer = window.setInterval(() => {
+    if (seq !== loadSeq) return
+    const pos = Math.min(spNow(), track.duration)
+    emit({ position: pos }, false)
+    // Move on just before the end ourselves, so Spotify's own autoplay never kicks in.
+    if (spPlaying && track.duration && pos >= track.duration - 0.35) {
+      spPlaying = false
+      onEnded()
+    }
+  }, 250)
+
+  spPoll = window.setInterval(async () => {
+    const s = await sp.playback().catch(() => null)
+    if (seq !== loadSeq || !s) return
+    if (s.trackId === track.id) {
+      if (s.playing) spSeenPlaying = true
+      spPlaying = s.playing
+      spPos = s.positionMs / 1000
+      spPosAt = performance.now()
+      if (state.playing !== s.playing) emit({ playing: s.playing }, false) // paused/resumed from Spotify itself
+      // stopped at the start after having played = finished (Spotify resets to 0 at the end)
+      if (!s.playing && spSeenPlaying && !spUserPaused && s.positionMs === 0) onEnded()
+    } else if (spSeenPlaying && !spUserPaused) {
+      onEnded() // Spotify moved on to another song: ours finished
+    }
+  }, 1000)
+}
+
+function spotifyToggle() {
+  if (spPlaying) {
+    spPos = spNow()
+    spPlaying = false
+    spUserPaused = true
+    emit({ playing: false }, false)
+    sp.pause().catch((err) => toast(cleanError(err).message))
+  } else {
+    spPosAt = performance.now()
+    spPlaying = true
+    spUserPaused = false
+    emit({ playing: true }, false)
+    sp.resume().catch((err) => toast(cleanError(err).message))
+  }
+}
+
+function onEnded() {
+  if (state.repeat === 'one') {
+    if (engine === 'spotify') return void load(true)
+    audio.currentTime = 0
+    audio.play().catch(() => {})
+  } else if (state.index < state.queue.length - 1) {
+    emit({ index: state.index + 1 })
+    load(true)
+  } else if (state.repeat === 'all' && state.queue.length) {
+    emit({ index: 0 })
+    load(true)
+  } else if (engine === 'spotify') {
+    spotifyStop()
+    loadedKey = null // pressing play again restarts the song
+    emit({ playing: false, position: 0 }, false)
+  }
+}
+
+audio.addEventListener('play', () => engine === 'audio' && emit({ playing: true }, false))
+audio.addEventListener('pause', () => engine === 'audio' && emit({ playing: false }, false))
 audio.addEventListener('playing', () => emit({ buffering: false }, false))
 audio.addEventListener('waiting', () => emit({ buffering: true }, false))
 audio.addEventListener('timeupdate', () => emit({ position: audio.currentTime }, false))
@@ -206,18 +343,7 @@ audio.addEventListener('error', () => {
     fail(item.track, new Error(audio.error?.code === 4 ? 'file missing or format not supported' : 'playback error'))
   }
 })
-audio.addEventListener('ended', () => {
-  if (state.repeat === 'one') {
-    audio.currentTime = 0
-    audio.play().catch(() => {})
-  } else if (state.index < state.queue.length - 1) {
-    emit({ index: state.index + 1 })
-    load(true)
-  } else if (state.repeat === 'all' && state.queue.length) {
-    emit({ index: 0 })
-    load(true)
-  }
-})
+audio.addEventListener('ended', onEnded)
 
 // ---------- actions ----------
 
@@ -286,6 +412,7 @@ export function toggle() {
   const item = currentItem()
   if (!item) return
   if (loadedKey !== item.key) return void load(true)
+  if (engine === 'spotify') return spotifyToggle()
   if (audio.paused) {
     if (audio.ended) audio.currentTime = 0
     audio.play().catch(() => {})
@@ -302,14 +429,19 @@ export function next() {
 
 export function prev() {
   if (!state.queue.length) return
-  if (audio.currentTime > 3 || (state.index === 0 && state.repeat !== 'all')) return seek(0)
+  const pos = engine === 'spotify' ? spNow() : audio.currentTime
+  if (pos > 3 || (state.index === 0 && state.repeat !== 'all')) return seek(0)
   emit({ index: state.index > 0 ? state.index - 1 : state.queue.length - 1 })
   load(true)
 }
 
 export function seek(seconds: number) {
   if (loadedKey !== currentItem()?.key) return
-  audio.currentTime = seconds
+  if (engine === 'spotify') {
+    spPos = seconds
+    spPosAt = performance.now()
+    sp.seek(seconds * 1000).catch((err) => toast(cleanError(err).message))
+  } else audio.currentTime = seconds
   emit({ position: seconds }, false)
 }
 
@@ -359,7 +491,7 @@ function setMediaSession(t: Track) {
 if ('mediaSession' in navigator) {
   const ms = navigator.mediaSession
   ms.setActionHandler('play', () => toggle())
-  ms.setActionHandler('pause', () => audio.pause())
+  ms.setActionHandler('pause', () => state.playing && toggle())
   ms.setActionHandler('nexttrack', () => next())
   ms.setActionHandler('previoustrack', () => prev())
   ms.setActionHandler('seekto', (d) => d.seekTime != null && seek(d.seekTime))

@@ -8,6 +8,7 @@ export type View =
   | { kind: 'search'; q?: string }
   | { kind: 'playlist'; id: string }
   | { kind: 'source'; source: SourceId }
+  | { kind: 'spotifyPlaylist'; id: string; name: string }
 
 export interface Nav {
   view: View

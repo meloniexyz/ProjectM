@@ -4,6 +4,7 @@ import { JsonFile } from './json-file'
 import { Library } from './library'
 import { handleMedia } from './media'
 import { SoundCloud } from './sources/soundcloud'
+import { Spotify } from './sources/spotify'
 import type { StreamingSource } from './sources/types'
 import { YouTubeMusic } from './sources/youtube'
 import type { Playlist, ScanProgress, SourceId } from '../shared/types'
@@ -18,7 +19,8 @@ const dataDir = app.getPath('userData')
 const library = new Library(dataDir)
 const playlists = new JsonFile<Playlist[]>(join(dataDir, 'playlists.json'), [])
 const youtube = new YouTubeMusic(join(dataDir, 'cache'))
-const streaming: Partial<Record<SourceId, StreamingSource>> = { youtube, soundcloud: new SoundCloud() }
+const spotify = new Spotify(join(dataDir, 'spotify.json'))
+const streaming: Partial<Record<SourceId, StreamingSource>> = { youtube, soundcloud: new SoundCloud(), spotify }
 
 function streamingSource(id: SourceId) {
   const source = streaming[id]
@@ -86,13 +88,28 @@ ipcMain.handle('library:showInFolder', (_, id: string) => {
 })
 ipcMain.handle('sources:search', (_, source: SourceId, query: string) => streamingSource(source).search(query))
 ipcMain.handle('sources:resolve', (_, source: SourceId, id: string) => streamingSource(source).resolve(id))
+ipcMain.handle('spotify:status', () => spotify.status())
+ipcMain.handle('spotify:login', (_, clientId: string) => spotify.login(clientId))
+ipcMain.handle('spotify:logout', async () => {
+  await spotify.logout()
+  return spotify.status()
+})
+ipcMain.handle('spotify:liked', () => spotify.likedSongs())
+ipcMain.handle('spotify:playlists', () => spotify.playlists())
+ipcMain.handle('spotify:playlistTracks', (_, id: string) => spotify.playlistTracks(id))
+ipcMain.handle('spotify:play', (_, id: string, positionMs?: number) => spotify.play(id, positionMs))
+ipcMain.handle('spotify:pause', () => spotify.pause())
+ipcMain.handle('spotify:resume', () => spotify.resume())
+ipcMain.handle('spotify:seek', (_, ms: number) => spotify.seek(ms))
+ipcMain.handle('spotify:volume', (_, percent: number) => spotify.volume(percent))
+ipcMain.handle('spotify:playback', () => spotify.playback())
 ipcMain.handle('playlists:get', () => playlists.get())
 ipcMain.handle('playlists:save', (_, list: Playlist[]) => playlists.set(list))
 
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark'
   Menu.setApplicationMenu(null)
-  await Promise.all([library.load(), playlists.load()])
+  await Promise.all([library.load(), playlists.load(), spotify.load()])
   protocol.handle('media', (req) => handleMedia(req, library, youtube))
   createWindow()
   // Pick up files added/changed while the app was closed.

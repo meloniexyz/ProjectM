@@ -66,12 +66,12 @@ function commit(playlists: Playlist[]) {
 const updatePlaylist = (id: string, fn: (p: Playlist) => Partial<Playlist>) =>
   commit(lib.get().playlists.map((p) => (p.id === id ? { ...p, ...fn(p), updatedAt: Date.now() } : p)))
 
-export function createPlaylist(tracks: Track[] = []) {
+export function createPlaylist(tracks: Track[] = [], name?: string) {
   const { playlists } = lib.get()
   const now = Date.now()
   const p: Playlist = {
     id: crypto.randomUUID(),
-    name: `My Playlist #${playlists.length + 1}`,
+    name: name?.trim() || `My Playlist #${playlists.length + 1}`,
     tracks,
     createdAt: now,
     updatedAt: now,

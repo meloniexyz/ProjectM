@@ -4,8 +4,10 @@ import { ContextMenuHost, Toasts } from './components/Overlays'
 import { PlayerBar } from './components/PlayerBar'
 import { QueuePanel } from './components/QueuePanel'
 import { Sidebar } from './components/Sidebar'
+import { SpotifyPlaylistView } from './components/SpotifyViews'
 import { AlbumsView, AlbumView, PlaylistView, SearchView, SongsView, SourceView } from './components/Views'
 import { initLibrary } from './lib/library'
+import { initSpotify } from './lib/spotify'
 import { NavContext, ScrollContext, type Nav, type View } from './lib/nav'
 import { getPlayer, next, prev, setVolume, toggle } from './lib/player'
 
@@ -29,6 +31,7 @@ export function App() {
 
   useEffect(() => {
     initLibrary()
+    initSpotify()
   }, [])
 
   useEffect(() => {
@@ -99,5 +102,7 @@ function Page({ view }: { view: View }) {
       return <PlaylistView id={view.id} />
     case 'source':
       return <SourceView source={view.source} />
+    case 'spotifyPlaylist':
+      return <SpotifyPlaylistView id={view.id} name={view.name} />
   }
 }

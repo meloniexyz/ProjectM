@@ -3,7 +3,7 @@ import { cls } from '../lib/format'
 import { createPlaylist, deletePlaylist, lib } from '../lib/library'
 import { useNav } from '../lib/nav'
 import { playTracks } from '../lib/player'
-import { isConnected, SOURCE_ORDER, SOURCES } from '../lib/sources'
+import { isConnected, SOURCE_ORDER, SOURCES, useConnections } from '../lib/sources'
 import { useStore } from '../lib/store'
 import { openMenu } from '../lib/ui'
 import { PlaylistArt } from './common'
@@ -15,6 +15,7 @@ export function Sidebar() {
   const playlists = useStore(lib, (s) => s.playlists)
   const count = useStore(lib, (s) => s.tracks.length)
   const scan = useStore(lib, (s) => s.scan)
+  useConnections()
 
   const item = (active: boolean, icon: ReactNode, label: string, onClick: () => void, extra?: ReactNode) => (
     <button className={cls('side-item', active && 'active')} onClick={onClick}>
@@ -44,7 +45,7 @@ export function Sidebar() {
               s === 'local' ? (
                 <span className="count">{count.toLocaleString()}</span>
               ) : isConnected(s) ? undefined : (
-                <span className="pill">Soon</span>
+                <span className="pill">Set up</span>
               ),
             )}
           </div>

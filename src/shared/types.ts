@@ -43,3 +43,25 @@ export interface StreamInfo {
   url: string
   kind: 'direct' | 'hls'
 }
+
+export interface SpotifyStatus {
+  clientId: string | null
+  connected: boolean
+  userName: string | null
+  /** what the user must register in their Spotify developer app */
+  redirectUri: string
+}
+
+export interface SpotifyPlaylist {
+  id: string
+  name: string
+  artwork?: string
+  owner: string
+  total: number
+}
+
+export interface SpotifyPlayback {
+  trackId: string | null
+  playing: boolean
+  positionMs: number
+}

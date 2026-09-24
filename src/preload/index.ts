@@ -1,5 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { LibraryState, Playlist, ScanProgress, SourceId, StreamInfo, Track } from '../shared/types'
+import type {
+  LibraryState,
+  Playlist,
+  ScanProgress,
+  SourceId,
+  SpotifyPlayback,
+  SpotifyPlaylist,
+  SpotifyStatus,
+  StreamInfo,
+  Track,
+} from '../shared/types'
 
 const api = {
   library: {
@@ -19,6 +29,20 @@ const api = {
   sources: {
     search: (source: SourceId, query: string): Promise<Track[]> => ipcRenderer.invoke('sources:search', source, query),
     resolve: (source: SourceId, id: string): Promise<StreamInfo> => ipcRenderer.invoke('sources:resolve', source, id),
+  },
+  spotify: {
+    status: (): Promise<SpotifyStatus> => ipcRenderer.invoke('spotify:status'),
+    login: (clientId: string): Promise<SpotifyStatus> => ipcRenderer.invoke('spotify:login', clientId),
+    logout: (): Promise<SpotifyStatus> => ipcRenderer.invoke('spotify:logout'),
+    liked: (): Promise<Track[]> => ipcRenderer.invoke('spotify:liked'),
+    playlists: (): Promise<SpotifyPlaylist[]> => ipcRenderer.invoke('spotify:playlists'),
+    playlistTracks: (id: string): Promise<Track[]> => ipcRenderer.invoke('spotify:playlistTracks', id),
+    play: (id: string, positionMs?: number): Promise<void> => ipcRenderer.invoke('spotify:play', id, positionMs),
+    pause: (): Promise<void> => ipcRenderer.invoke('spotify:pause'),
+    resume: (): Promise<void> => ipcRenderer.invoke('spotify:resume'),
+    seek: (ms: number): Promise<void> => ipcRenderer.invoke('spotify:seek', ms),
+    volume: (percent: number): Promise<void> => ipcRenderer.invoke('spotify:volume', percent),
+    playback: (): Promise<SpotifyPlayback | null> => ipcRenderer.invoke('spotify:playback'),
   },
   playlists: {
     get: (): Promise<Playlist[]> => ipcRenderer.invoke('playlists:get'),

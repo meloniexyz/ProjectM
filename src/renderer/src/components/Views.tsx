@@ -16,7 +16,8 @@ import {
 } from '../lib/library'
 import { useNav } from '../lib/nav'
 import { playTracks } from '../lib/player'
-import { isConnected, isStreaming, searchSource, SOURCE_ORDER, SOURCES, STREAMING_SOURCES } from '../lib/sources'
+import { isConnected, isStreaming, searchSource, SOURCE_ORDER, SOURCES, streamingSources, useConnections } from '../lib/sources'
+import { SpotifyView } from './SpotifyViews'
 import { useStore } from '../lib/store'
 import { Artwork, Empty, Hero, PlayActions, PlaylistArt } from './common'
 import { DiscIcon, FolderIcon, MusicIcon, PlayIcon, PlaylistIcon, PlusIcon, RefreshIcon, SearchIcon, SourceBadge, TrashIcon, XIcon } from './Icons'
@@ -181,7 +182,8 @@ export function SearchView({ initial, source }: { initial?: string; source?: Sou
     [tracks, tokens],
   )
 
-  const remoteSources = filter === 'all' ? STREAMING_SOURCES : isStreaming(filter) ? [filter] : []
+  useConnections()
+  const remoteSources = filter === 'all' ? streamingSources() : isStreaming(filter) ? [filter] : []
   const remoteKey = remoteSources.join(',')
 
   useEffect(() => {
@@ -241,7 +243,7 @@ export function SearchView({ initial, source }: { initial?: string; source?: Sou
               key={s}
               className={cls('chip', filter === s && 'on')}
               disabled={!isConnected(s)}
-              title={isConnected(s) ? undefined : 'Coming soon'}
+              title={isConnected(s) ? undefined : `Connect ${SOURCES[s].name} first (sidebar)`}
               onClick={() => setFilter(s)}
             >
               <SourceBadge source={s} size={14} /> {SOURCES[s].name}
@@ -257,7 +259,7 @@ export function SearchView({ initial, source }: { initial?: string; source?: Sou
         >
           <p>
             {filter === 'all'
-              ? 'One search across your files, YouTube Music and SoundCloud. Press Enter to play the top results.'
+              ? `One search across ${SOURCE_ORDER.filter(isConnected).map((s) => (s === 'local' ? 'your files' : SOURCES[s].name)).join(', ')}. Press Enter to play the top results.`
               : 'Press Enter to play the results. Anything you find can go in your playlists and queue.'}
           </p>
         </Empty>
@@ -439,6 +441,7 @@ export function PlaylistView({ id }: { id: string }) {
 
 export function SourceView({ source }: { source: SourceId }) {
   if (source === 'local') return <LocalSource />
+  if (source === 'spotify') return <SpotifyView />
   if (isStreaming(source)) return <SearchView source={source} />
   return <ComingSoon source={source} />
 }

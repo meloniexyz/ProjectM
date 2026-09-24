@@ -1,4 +1,6 @@
 import type { SourceId, StreamInfo, Track } from '../../../shared/types'
+import { spotifyStore } from './spotify'
+import { useStore } from './store'
 
 export interface SourceInfo {
   name: string
@@ -24,14 +26,17 @@ export const SOURCES: Record<SourceId, SourceInfo> = {
   spotify: {
     name: 'Spotify',
     color: '#1ed760',
-    plan: 'Play your Spotify library and playlists (Premium required). Audio runs through a small background helper.',
+    plan: 'Play your liked songs, playlists and all of Spotify (Premium). Audio plays through your Spotify app in the background.',
   },
 }
 
-const CONNECTED = new Set<SourceId>(['local', 'youtube', 'soundcloud'])
-export const isConnected = (source: SourceId) => CONNECTED.has(source)
+export const isConnected = (source: SourceId) =>
+  source === 'spotify' ? !!spotifyStore.get().status?.connected : true
 export const isStreaming = (source: SourceId) => source !== 'local' && isConnected(source)
-export const STREAMING_SOURCES = SOURCE_ORDER.filter(isStreaming)
+export const streamingSources = () => SOURCE_ORDER.filter(isStreaming)
+
+/** Re-renders the caller when a source connects or disconnects. */
+export const useConnections = () => useStore(spotifyStore, (s) => s.status?.connected ?? false)
 
 /** Turns a track into something the audio element can play. */
 export async function resolveStream(track: Track): Promise<StreamInfo> {
@@ -67,4 +72,5 @@ export function searchSource(source: SourceId, query: string): Promise<Track[]> 
 /** Link to the song on the service's own website, if there is one. */
 export function webUrl(track: Track): string | undefined {
   if (track.source === 'youtube') return `https://music.youtube.com/watch?v=${track.id}`
+  if (track.source === 'spotify') return `https://open.spotify.com/track/${track.id}`
 }
