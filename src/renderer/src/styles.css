@@ -1884,3 +1884,45 @@ kbd {
     display: none;
   }
 }
+
+/* ---------- SoundCloud profile picker ---------- */
+
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.profile-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 10px;
+  text-align: left;
+  background: var(--bg-3);
+  transition: background 0.12s;
+}
+.profile-row:hover:not(:disabled) {
+  background: #292935;
+}
+.profile-row .pick {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-2);
+  opacity: 0;
+}
+.profile-row:hover .pick {
+  opacity: 1;
+}
+.profile-text {
+  flex: 1;
+  min-width: 0;
+}
+.profile-text .a {
+  color: var(--text-2);
+}
+.art.round {
+  border-radius: 50%;
+}

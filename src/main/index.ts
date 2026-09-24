@@ -129,6 +129,7 @@ ipcMain.handle('sources:match', (_, t: { title: string; artist: string; duration
 ipcMain.handle('account:status', (_, s: SourceId) => account(s).status())
 ipcMain.handle('account:login', (_, s: SourceId, arg?: string) => account(s).login(arg))
 ipcMain.handle('account:cancel', () => youtube.cancelLogin())
+ipcMain.handle('soundcloud:findProfiles', (_, q: string) => soundcloud.findProfiles(q))
 ipcMain.handle('account:logout', async (_, s: SourceId) => {
   await account(s).logout()
   return account(s).status()

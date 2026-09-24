@@ -32,6 +32,20 @@ interface DataApiItem {
   id?: string
 }
 
+const GOOGLE_OAUTH = 'https://oauth2.googleapis.com'
+const YOUTUBE_SCOPE = 'https://www.googleapis.com/auth/youtube'
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+interface GoogleTokenResponse {
+  access_token?: string
+  refresh_token?: string
+  expires_in?: number
+  token_type?: string
+  scope?: string
+  error?: string
+  error_description?: string
+}
+
 /** "PT3M25S" -> 205 */
 function isoSeconds(iso = '') {
   const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
@@ -170,6 +184,7 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
 
   private authed() {
     this.authedClient ??= (async () => {
+      if (this.saved()?.client) await this.bearer() // refresh our own client's token first
       const saved = this.saved()
       if (!saved) throw new Error('YouTube Music account is not connected')
       const yt = await Innertube.create({ retrieve_player: false })
@@ -204,16 +219,20 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     const custom = arg ? (JSON.parse(arg) as { clientId: string; clientSecret: string }) : null
     const client = custom ? { client_id: custom.clientId.trim(), client_secret: custom.clientSecret.trim() } : undefined
 
-    const yt = await Innertube.create({ retrieve_player: false })
-    if (client) (yt.session.oauth as unknown as { client_id: unknown }).client_id = client
-    const tokens = await new Promise<OAuth2Tokens>((resolve, reject) => {
-      yt.session.on('auth-pending', (d) => this.onDeviceCode({ code: d.user_code, url: d.verification_url }))
-      yt.session.on('auth', ({ credentials }) => (credentials ? resolve(credentials) : reject(new Error('no credentials'))))
-      yt.session.on('auth-error', (err) => reject(err))
-      yt.session.signIn().catch(reject)
-    }).catch((err: Error) => {
-      throw new Error(`Google sign-in failed: ${err.message}`)
-    })
+    let tokens: OAuth2Tokens
+    if (client) {
+      tokens = await this.deviceFlow(client, attempt)
+    } else {
+      const yt = await Innertube.create({ retrieve_player: false })
+      tokens = await new Promise<OAuth2Tokens>((resolve, reject) => {
+        yt.session.on('auth-pending', (d) => this.onDeviceCode({ code: d.user_code, url: d.verification_url }))
+        yt.session.on('auth', ({ credentials }) => (credentials ? resolve(credentials) : reject(new Error('no credentials'))))
+        yt.session.on('auth-error', (err) => reject(err))
+        yt.session.signIn().catch(reject)
+      }).catch((err: Error) => {
+        throw new Error(`Google sign-in failed: ${err.message}`)
+      })
+    }
     if (attempt !== this.loginAttempt) throw new Error('Sign-in was cancelled')
 
     // Prove the library is reachable before calling it connected. YouTube Music's own API is
@@ -257,6 +276,98 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     this.loginAttempt++
   }
 
+  /** Google's "sign in on another device" flow with the user's own OAuth client. */
+  private async deviceFlow(client: { client_id: string; client_secret: string }, attempt: number): Promise<OAuth2Tokens> {
+    const start = await fetch(`${GOOGLE_OAUTH}/device/code`, {
+      method: 'POST',
+      body: new URLSearchParams({ client_id: client.client_id, scope: YOUTUBE_SCOPE }),
+    })
+    const d = (await start.json()) as {
+      device_code?: string
+      user_code?: string
+      verification_url?: string
+      interval?: number
+      expires_in?: number
+      error?: string
+      error_description?: string
+    }
+    if (!start.ok || !d.device_code) {
+      throw new Error(`Google refused the client (${d.error_description || d.error || start.status}). Check the Client ID and that its type is "TVs and Limited Input devices".`)
+    }
+    this.onDeviceCode({ code: d.user_code!, url: d.verification_url! })
+
+    let interval = (d.interval ?? 5) * 1000
+    const deadline = Date.now() + (d.expires_in ?? 1800) * 1000
+    while (Date.now() < deadline) {
+      await sleep(interval)
+      if (attempt !== this.loginAttempt) throw new Error('Sign-in was cancelled')
+      const res = await fetch(`${GOOGLE_OAUTH}/token`, {
+        method: 'POST',
+        body: new URLSearchParams({
+          client_id: client.client_id,
+          client_secret: client.client_secret,
+          device_code: d.device_code,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        }),
+      })
+      const t = (await res.json()) as GoogleTokenResponse
+      if (t.access_token && t.refresh_token) {
+        return {
+          access_token: t.access_token,
+          refresh_token: t.refresh_token,
+          expiry_date: new Date(Date.now() + (t.expires_in ?? 3600) * 1000).toISOString(),
+          token_type: t.token_type ?? 'Bearer',
+          scope: t.scope ?? YOUTUBE_SCOPE,
+        } as OAuth2Tokens
+      }
+      if (t.error === 'authorization_pending') continue
+      if (t.error === 'slow_down') {
+        interval += 5000
+        continue
+      }
+      if (t.error === 'access_denied') throw new Error('You declined the sign-in on the Google page')
+      throw new Error(`Google sign-in failed: ${t.error_description || t.error || res.status}`)
+    }
+    throw new Error('The sign-in code expired. Try again.')
+  }
+
+  /** A fresh access token. The user's own client refreshes directly with Google. */
+  private async bearer(): Promise<string> {
+    const saved = this.saved()
+    if (!saved) throw new Error('not signed in')
+    if (saved.client) {
+      if (Date.parse(saved.expiry_date) - Date.now() > 120_000) return saved.access_token
+      const res = await fetch(`${GOOGLE_OAUTH}/token`, {
+        method: 'POST',
+        body: new URLSearchParams({
+          client_id: saved.client.client_id,
+          client_secret: saved.client.client_secret,
+          refresh_token: saved.refresh_token,
+          grant_type: 'refresh_token',
+        }),
+      })
+      const t = (await res.json()) as GoogleTokenResponse
+      if (!t.access_token) {
+        throw new Error(`Your YouTube sign-in expired (${t.error_description || t.error}). Sign in again.`)
+      }
+      const next: SavedLogin = {
+        ...saved,
+        access_token: t.access_token,
+        refresh_token: t.refresh_token ?? saved.refresh_token,
+        expiry_date: new Date(Date.now() + (t.expires_in ?? 3600) * 1000).toISOString(),
+      }
+      await this.save(next)
+      this.authedClient = null // youtubei picks up the new token next time
+      return next.access_token
+    }
+    const yt = await this.authed()
+    const oauth = yt.session.oauth
+    if (oauth.shouldRefreshToken()) await oauth.refreshAccessToken()
+    const token = oauth.oauth2_tokens?.access_token
+    if (!token) throw new Error('not signed in')
+    return token
+  }
+
   async logout() {
     await this.save(undefined)
     this.authedClient = null
@@ -273,11 +384,7 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
 
   /** Official YouTube Data API v3 call with the signed-in user's token. */
   private async dataApi<T>(path: string, params: Record<string, string>): Promise<T> {
-    const yt = await this.authed()
-    const oauth = yt.session.oauth
-    if (oauth.shouldRefreshToken()) await oauth.refreshAccessToken()
-    const token = oauth.oauth2_tokens?.access_token
-    if (!token) throw new Error('not signed in')
+    const token = await this.bearer()
     const res = await fetch(`https://www.googleapis.com/youtube/v3${path}?${new URLSearchParams(params)}`, {
       headers: { Authorization: `Bearer ${token}` },
     })

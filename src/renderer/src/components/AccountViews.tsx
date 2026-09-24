@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { RemotePlaylist, SourceId, Track } from '../../../shared/types'
+import type { RemotePlaylist, SoundCloudProfile, SourceId, Track } from '../../../shared/types'
 import {
   cancelSignIn,
   connectAccount,
@@ -112,46 +112,88 @@ function ConnectCard({ source }: { source: SourceId }) {
   return source === 'youtube' ? <YouTubeSignIn /> : <SoundCloudProfile />
 }
 
-/** SoundCloud likes and public playlists are public: all we need is which profile is yours. */
+/** SoundCloud likes and playlists are public: find your profile and pick it. No login needed. */
 function SoundCloudProfile() {
-  const [value, setValue] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<SoundCloudProfile[] | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [busyId, setBusyId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const connect = async () => {
-    if (!value.trim()) return setError('Type your SoundCloud profile link or username first.')
-    setBusy(true)
+
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length < 2) {
+      setResults(null)
+      return
+    }
+    let live = true
+    setSearching(true)
+    const t = setTimeout(() => {
+      window.api.soundcloud.findProfiles(q).then(
+        (found) => live && (setResults(found), setSearching(false)),
+        () => live && (setResults([]), setSearching(false)),
+      )
+    }, 400)
+    return () => {
+      live = false
+      clearTimeout(t)
+    }
+  }, [query])
+
+  const pick = async (p: SoundCloudProfile) => {
+    setBusyId(p.id)
     setError(null)
     try {
-      await connectAccount('soundcloud', value)
-      toast('SoundCloud profile connected')
+      await connectAccount('soundcloud', `id:${p.id}`)
+      toast(`SoundCloud connected as ${p.username}`)
     } catch (err) {
       setError((err as Error).message)
     } finally {
-      setBusy(false)
+      setBusyId(null)
     }
   }
+
   return (
     <div className="connect-card paste">
       <div>
-        <h3>Connect your SoundCloud profile</h3>
+        <h3>Find your SoundCloud profile</h3>
         <p>
-          Your likes and playlists on SoundCloud are public, so ProjectM just needs to know which profile is yours. No
-          password or login needed. (Private playlists won't show up.)
+          SoundCloud only offers app sign-in to paid Artist Pro accounts, but your likes and playlists are public, so
+          ProjectM just needs to know which profile is yours. Search your name or paste your profile link, then click
+          your profile.
         </p>
       </div>
       <div className="copy-row">
         <input
           className="text-input plain"
-          value={value}
-          placeholder="Your profile link, e.g. soundcloud.com/yourname (or just yourname)"
+          value={query}
+          autoFocus
+          placeholder="Your name on SoundCloud, or your profile link"
           spellCheck={false}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && !busy && connect()}
+          onChange={(e) => setQuery(e.target.value)}
         />
-        <button className="btn primary" disabled={busy} onClick={connect}>
-          {busy ? <RefreshIcon size={14} className="spin" /> : null} Connect
-        </button>
+        {searching && <RefreshIcon size={16} className="spin" />}
       </div>
+      {results && results.length === 0 && !searching && (
+        <div className="hint">No profiles found. Try your profile link (soundcloud.com/…) instead.</div>
+      )}
+      {results && results.length > 0 && (
+        <div className="profile-list">
+          {results.map((p) => (
+            <button key={p.id} className="profile-row" disabled={busyId !== null} onClick={() => pick(p)}>
+              <Artwork src={p.avatar} size={44} className="round" />
+              <div className="profile-text">
+                <div className="t">{p.username}</div>
+                <div className="a">
+                  soundcloud.com/{p.permalink}
+                  {p.city ? ` · ${p.city}` : ''} · {plural(p.followers, 'follower')} · {plural(p.likes, 'like')}
+                </div>
+              </div>
+              {busyId === p.id ? <RefreshIcon size={16} className="spin" /> : <span className="pick">This is me</span>}
+            </button>
+          ))}
+        </div>
+      )}
       {error && <div className="result-error flat">{error}</div>}
     </div>
   )
@@ -257,41 +299,40 @@ function YouTubeSignIn() {
         <div className="advanced">
           {needsClient && (
             <p>
-              YouTube didn't accept the standard TV sign-in for music. Using your own free Google client fixes that
-              (one-time, about 5 minutes). You'll still sign in with a code, same as above.
+              YouTube doesn't let the standard TV sign-in read your library. A free Google project of your own fixes
+              that (one-time, about 5 minutes). After that you sign in with a code, same as before.
             </p>
           )}
           <ol className="mini-steps">
             <li>
-              Open the{' '}
               <button className="link-btn inline" onClick={() => window.open('https://console.cloud.google.com/projectcreate')}>
-                Google Cloud console
-              </button>{' '}
-              and create a project (any name, e.g. ProjectM).
+                Create a Google Cloud project
+              </button> (free, any
+              name like "ProjectM"), using the same Google account as your YouTube.
             </li>
             <li>
-              Enable the{' '}
-              <button
-                className="link-btn inline"
-                onClick={() => window.open('https://console.cloud.google.com/apis/library/youtube.googleapis.com')}
-              >
+              Open the <button className="link-btn inline" onClick={() => window.open('https://console.cloud.google.com/apis/library/youtube.googleapis.com')}>
                 YouTube Data API v3
               </button>{' '}
-              for it.
+              page and click <b>Enable</b>.
             </li>
             <li>
-              Go to{' '}
-              <button className="link-btn inline" onClick={() => window.open('https://console.cloud.google.com/auth/audience')}>
-                Google Auth Platform → Audience
-              </button>
-              , choose <b>External</b>, and add your own Gmail under <b>Test users</b>.
+              Open <button className="link-btn inline" onClick={() => window.open('https://console.cloud.google.com/auth/overview')}>
+                Google Auth Platform
+              </button> → <b>Get started</b>. App
+              name: ProjectM, pick your email, Audience: <b>External</b>, finish. Then under <b>Audience</b> → <b>Test
+              users</b>, add your own Gmail.
             </li>
             <li>
-              Go to{' '}
-              <button className="link-btn inline" onClick={() => window.open('https://console.cloud.google.com/auth/clients')}>
+              Open <button className="link-btn inline" onClick={() => window.open('https://console.cloud.google.com/auth/clients/create')}>
                 Clients → Create client
-              </button>
-              , pick <b>TVs and Limited Input devices</b>, create it, and copy the Client ID and secret below.
+              </button>, choose{' '}
+              <b>TVs and Limited Input devices</b>, click <b>Create</b>, and copy the <b>Client ID</b> and{' '}
+              <b>Client secret</b> into the boxes below.
+            </li>
+            <li>
+              Click <b>Sign in</b> and approve the code. Google will warn that the app isn't verified: that's your own
+              app, click <b>Continue</b>.
             </li>
           </ol>
           <div className="copy-row">

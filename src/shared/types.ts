@@ -75,3 +75,14 @@ export interface SpotifyPlayback {
   playing: boolean
   positionMs: number
 }
+
+/** A SoundCloud profile shown in the "which one is you?" picker. */
+export interface SoundCloudProfile {
+  id: number
+  username: string
+  permalink: string
+  avatar?: string
+  followers: number
+  likes: number
+  city?: string
+}

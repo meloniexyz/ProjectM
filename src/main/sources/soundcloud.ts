@@ -1,4 +1,4 @@
-import type { AccountStatus, RemotePlaylist, Track } from '../../shared/types'
+import type { AccountStatus, RemotePlaylist, SoundCloudProfile, Track } from '../../shared/types'
 import type { Secrets } from '../secrets'
 import { UA, type AccountSource, type StreamInfo, type StreamingSource } from './types'
 
@@ -9,7 +9,7 @@ function profileUrl(input: string) {
   const text = input.trim().replace(/[?#].*$/, '').replace(/\/+$/, '')
   const m = text.match(/soundcloud\.com\/([^/\s]+)/i)
   const name = m ? m[1] : text.replace(/^@/, '')
-  if (!/^[\w-]{2,}$/.test(name)) throw new Error("That doesn't look like a SoundCloud profile link or username")
+  if (!/^[\w-]{2,}$/.test(name)) return 'https://soundcloud.com/-' // never matches a profile
   return `https://soundcloud.com/${name}`
 }
 
@@ -31,6 +31,14 @@ interface ScPlaylist {
 interface ScUser {
   id: number
   username: string
+}
+interface ScUserFull extends ScUser {
+  kind?: string
+  permalink?: string
+  avatar_url?: string
+  followers_count?: number
+  likes_count?: number
+  city?: string | null
 }
 interface Page<T> {
   collection: T[]
@@ -104,13 +112,46 @@ export class SoundCloud implements StreamingSource, AccountSource {
     return { connected: !!p, userName: p?.username ?? null }
   }
 
-  /** "Connects" a profile by its link or username: SoundCloud likes and playlists are public. */
+  /**
+   * "Connects" a profile: SoundCloud likes and playlists are public, so we only need to know
+   * which profile is yours. `input` is "id:123" (picked from search) or a profile link.
+   */
   async login(input = ''): Promise<AccountStatus> {
-    const url = profileUrl(input)
-    const found = await this.api<{ kind?: string; id?: number; username?: string }>('/resolve', { url }).catch(() => null)
-    if (found?.kind !== 'user' || !found.id) throw new Error(`Couldn't find a SoundCloud profile at ${url}`)
+    let found: ScUserFull | null
+    const byId = input.match(/^id:(\d+)$/)
+    if (byId) found = await this.api<ScUserFull>(`/users/${byId[1]}`).catch(() => null)
+    else {
+      const url = profileUrl(input)
+      found = await this.api<ScUserFull>('/resolve', { url }).catch(() => null)
+      if (found?.kind !== 'user') found = null
+    }
+    if (!found?.id) throw new Error("Couldn't find that SoundCloud profile")
     await this.secrets.set(PROFILE_KEY, JSON.stringify({ id: found.id, username: found.username ?? '' }))
     return this.status()
+  }
+
+  /** Profiles matching a name (or the exact profile, for a pasted link) for the picker. */
+  async findProfiles(query: string): Promise<SoundCloudProfile[]> {
+    const q = query.trim()
+    if (!q) return []
+    const toProfile = (u: ScUserFull): SoundCloudProfile => ({
+      id: u.id,
+      username: u.username,
+      permalink: u.permalink ?? '',
+      avatar: u.avatar_url?.replace('-large.', '-t200x200.'),
+      followers: u.followers_count ?? 0,
+      likes: u.likes_count ?? 0,
+      city: u.city ?? undefined,
+    })
+    const out: SoundCloudProfile[] = []
+    // an exact profile address match goes first
+    const exact = await this.api<ScUserFull>('/resolve', { url: profileUrl(q) }).catch(() => null)
+    if (exact?.kind === 'user') out.push(toProfile(exact))
+    if (!/soundcloud\.com\//i.test(q)) {
+      const res = await this.api<{ collection: ScUserFull[] }>('/search/users', { q, limit: '10' }).catch(() => null)
+      for (const u of res?.collection ?? []) if (!out.some((p) => p.id === u.id)) out.push(toProfile(u))
+    }
+    return out.slice(0, 10)
   }
 
   async logout() {

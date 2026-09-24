@@ -4,6 +4,7 @@ import type {
   Playlist,
   ScanProgress,
   SourceId,
+  SoundCloudProfile,
   AccountStatus,
   Lyrics,
   RemotePlaylist,
@@ -51,6 +52,9 @@ const api = {
     top: (s: SourceId): Promise<Track[]> => ipcRenderer.invoke('account:top', s),
     playlists: (s: SourceId): Promise<RemotePlaylist[]> => ipcRenderer.invoke('account:playlists', s),
     playlistTracks: (s: SourceId, id: string): Promise<Track[]> => ipcRenderer.invoke('account:playlistTracks', s, id),
+  },
+  soundcloud: {
+    findProfiles: (q: string): Promise<SoundCloudProfile[]> => ipcRenderer.invoke('soundcloud:findProfiles', q),
   },
   lyrics: (t: { title: string; artist: string; album: string; duration: number }): Promise<Lyrics | null> =>
     ipcRenderer.invoke('lyrics:get', t),
