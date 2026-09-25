@@ -178,6 +178,8 @@ export class Library {
       trackNo: c?.track.no ?? undefined,
       discNo: c?.disk.no ?? undefined,
       year: c?.year,
+      // ReplayGain targets -18 LUFS; we target -14, so 4 dB louder
+      gainDb: c?.replaygain_track_gain?.dB != null ? c.replaygain_track_gain.dB + 4 : undefined,
     }
   }
 

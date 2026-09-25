@@ -58,6 +58,7 @@ async function serveFile(path: string, range: string | null, extra: Record<strin
   const headers: Record<string, string> = {
     'Content-Type': MIME[extname(path).toLowerCase()] ?? 'application/octet-stream',
     'Accept-Ranges': 'bytes',
+    'Access-Control-Allow-Origin': '*', // lets the player's loudness meter read the audio
     ...extra,
   }
   let start = 0

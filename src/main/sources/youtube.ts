@@ -86,6 +86,8 @@ interface ResolvedStream {
   mime: string
   length: number
   expires: number
+  /** gain (dB) to reach -14 LUFS, from YouTube's own loudness measurement */
+  gainDb?: number
 }
 
 /**
@@ -537,8 +539,8 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
 
   /** Audio goes through our media:// proxy so we control ranges and can refresh expired URLs. */
   async resolve(id: string): Promise<StreamInfo> {
-    await this.stream(id) // resolve now so errors reach the player immediately
-    return { url: `media://youtube/${encodeURIComponent(id)}`, kind: 'direct' }
+    const stream = await this.stream(id) // resolve now so errors reach the player immediately
+    return { url: `media://youtube/${encodeURIComponent(id)}`, kind: 'direct', gainDb: stream.gainDb }
   }
 
   async stream(id: string, fresh = false): Promise<ResolvedStream> {
@@ -567,6 +569,12 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
           length: Number(format.content_length) || 0,
           // refresh a few minutes before YouTube's own expiry (default: 1 hour)
           expires: expireParam ? expireParam * 1000 - 5 * 60_000 : Date.now() + 60 * 60_000,
+          gainDb:
+            format.track_absolute_loudness_lkfs != null
+              ? -14 - format.track_absolute_loudness_lkfs
+              : format.loudness_db != null
+                ? -format.loudness_db // relative to YouTube's own -14 LUFS reference
+                : undefined,
         }
         if (!stream.length) {
           const head = await fetch(url, { headers: { Range: 'bytes=0-0' } })
@@ -607,6 +615,7 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
       headers: {
         'Content-Type': stream.mime,
         'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*',
         'Content-Range': got ?? `bytes ${start}-${end}/${stream.length || '*'}`,
         'Content-Length': upstream.headers.get('content-length') ?? String(end - start + 1),
       },

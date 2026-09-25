@@ -228,3 +228,8 @@ export const HomeIcon = (p: P) => (
     <path d="M5 9v11h5v-6h4v6h5V9" />
   </Svg>
 )
+export const LevelIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 10v4M8 7v10M12 9v6M16 6v12M20 10v4" />
+  </Svg>
+)

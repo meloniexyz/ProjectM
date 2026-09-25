@@ -17,6 +17,8 @@ export interface Track {
   trackNo?: number
   discNo?: number
   year?: number
+  /** local files: gain (dB) that brings the song to -14 LUFS, from its ReplayGain tag */
+  gainDb?: number
 }
 
 export interface Playlist {
@@ -42,6 +44,8 @@ export interface ScanProgress {
 export interface StreamInfo {
   url: string
   kind: 'direct' | 'hls'
+  /** known gain (dB) to reach -14 LUFS, when the source publishes loudness info */
+  gainDb?: number
 }
 
 /** A signed-in streaming account (Spotify, YouTube Music, SoundCloud). */

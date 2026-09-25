@@ -13,7 +13,7 @@ import { YouTubeMusic } from './sources/youtube'
 import type { Playlist, ScanProgress, SourceId } from '../shared/types'
 
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
+  { scheme: 'media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } },
 ])
 
 // PROJECTM_DATA lets you run against a throwaway library (handy for testing)
@@ -69,6 +69,8 @@ function createWindow() {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
       contextIsolation: true,
+      // a music player must keep its timers (loudness meter, Spotify sync) running in the background
+      backgroundThrottling: false,
     },
   })
 

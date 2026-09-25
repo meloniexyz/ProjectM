@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import type Hls from 'hls.js'
 import type { SourceId, StreamInfo, Track } from '../../../shared/types'
 import { recordPlay } from './history'
+import { connectAudio, resumeAudio, setMediaElement, setNormalizeEnabled, setOutputVolume, startSong } from './loudness'
 import { shuffled } from './format'
 import { cleanError, resolveStream } from './sources'
 import { toast } from './ui'
@@ -25,6 +26,8 @@ export interface PlayerState {
   shuffle: boolean
   repeat: Repeat
   error: string | null
+  /** even out loudness between songs and sources */
+  normalize: boolean
   /** set when the song plays from a different service than its own (Spotify -> YouTube Music) */
   via: SourceId | null
 }
@@ -48,6 +51,7 @@ function restore(): PlayerState {
     shuffle: false,
     repeat: 'off',
     error: null,
+    normalize: true,
     via: null,
   }
   try {
@@ -62,6 +66,7 @@ function restore(): PlayerState {
       s.muted = !!saved.muted
       s.shuffle = !!saved.shuffle
       s.repeat = saved.repeat ?? 'off'
+      s.normalize = saved.normalize ?? true
     }
   } catch {
     // ignore corrupt saved state
@@ -96,6 +101,7 @@ function save() {
         muted: state.muted,
         shuffle: state.shuffle,
         repeat: state.repeat,
+        normalize: state.normalize,
       }),
     )
   } catch {
@@ -127,6 +133,9 @@ export const getPlayer = () => state
 
 const audio = new Audio()
 audio.preload = 'auto'
+connectAudio(audio) // loudness normalizer + volume (see loudness.ts)
+setMediaElement(audio)
+setNormalizeEnabled(state.normalize)
 /** queue item currently loaded into the audio element */
 let loadedKey: number | null = null
 /** bumps on every load, so stale async results are ignored */
@@ -144,6 +153,8 @@ function detachHls() {
 /** Points the audio element at a stream. Returns false if a newer load() superseded this one. */
 async function attach(stream: StreamInfo, seq: number, track: Track) {
   detachHls()
+  startSong(track.uid, stream.gainDb)
+  resumeAudio()
   if (stream.kind === 'direct') {
     audio.src = stream.url
     return true
@@ -168,7 +179,7 @@ let engine: 'audio' | 'spotify' = 'audio'
 let spotifyVolumeTimer = 0
 
 function applyVolume() {
-  audio.volume = state.muted ? 0 : state.volume ** 2 // squared feels linear to the ear
+  setOutputVolume(state.muted ? 0 : state.volume ** 2) // squared feels linear to the ear
   if (engine === 'spotify') {
     clearTimeout(spotifyVolumeTimer)
     spotifyVolumeTimer = window.setTimeout(() => sp.volume(spotifyVolume()).catch(() => {}), 250)
@@ -471,6 +482,7 @@ export function toggle() {
   if (loadedKey !== item.key) return void load(true)
   if (engine === 'spotify') return spotifyToggle()
   if (audio.paused) {
+    resumeAudio()
     if (audio.ended) audio.currentTime = 0
     audio.play().catch(() => {})
   } else audio.pause()
@@ -525,6 +537,12 @@ export function toggleShuffle() {
     const upcoming = shuffled(state.queue.slice(state.index + 1))
     emit({ queue: [...state.queue.slice(0, state.index + 1), ...upcoming], shuffle: true })
   }
+}
+
+export function toggleNormalize() {
+  emit({ normalize: !state.normalize })
+  setNormalizeEnabled(state.normalize)
+  toast(state.normalize ? 'Volume leveling on: every song plays at the same loudness' : 'Volume leveling off')
 }
 
 export function cycleRepeat() {

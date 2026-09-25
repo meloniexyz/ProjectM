@@ -10,11 +10,13 @@ import {
   setVolume,
   toggle,
   toggleMute,
+  toggleNormalize,
   toggleShuffle,
   usePlayer,
 } from '../lib/player'
 import { Artwork, Slider } from './common'
 import {
+  LevelIcon,
   NextIcon,
   NowPlayingIcon,
   PauseIcon,
@@ -42,6 +44,7 @@ export function PlayerBar({ panel, onTogglePanel }: { panel: Panel | null; onTog
   const shuffle = usePlayer((s) => s.shuffle)
   const repeat = usePlayer((s) => s.repeat)
   const via = usePlayer((s) => s.via)
+  const normalize = usePlayer((s) => s.normalize)
   // while dragging the seek bar, show where you'd land without actually seeking yet
   const [preview, setPreview] = useState<number | null>(null)
   const shownPos = preview ?? position
@@ -133,6 +136,13 @@ export function PlayerBar({ panel, onTogglePanel }: { panel: Panel | null; onTog
       </div>
 
       <div className="extras">
+        <button
+          className={cls('icon-btn', normalize && 'on')}
+          title={normalize ? 'Volume leveling: on (all songs at the same loudness)' : 'Volume leveling: off'}
+          onClick={toggleNormalize}
+        >
+          <LevelIcon size={18} />
+        </button>
         <button className={cls('icon-btn', panel === 'nowPlaying' && 'on')} title="Now playing view" onClick={() => onTogglePanel('nowPlaying')}>
           <NowPlayingIcon size={18} />
         </button>
