@@ -16,6 +16,17 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } },
 ])
 
+// One ProjectM at a time: launching it again focuses the open window (like Spotify).
+if (!app.requestSingleInstanceLock()) app.exit(0)
+app.on('second-instance', () => {
+  if (!win) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+})
+// Taskbar grouping and the Windows media overlay show "ProjectM"
+app.setAppUserModelId('com.projectm.app')
+
 // PROJECTM_DATA lets you run against a throwaway library (handy for testing)
 if (process.env.PROJECTM_DATA) app.setPath('userData', process.env.PROJECTM_DATA)
 const dataDir = app.getPath('userData')
@@ -64,6 +75,8 @@ function createWindow() {
     show: false,
     title: 'ProjectM',
     backgroundColor: BG,
+    // the installed .exe carries its own icon; in development use the one from build/
+    ...(app.isPackaged ? {} : { icon: join(__dirname, '../../build/icon.png') }),
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: BG, symbolColor: '#a3a3b2', height: 40 },
     webPreferences: {
