@@ -1,6 +1,6 @@
 {
   "name": "projectm",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "ProjectM: local files, YouTube Music, SoundCloud and Spotify in one player",
   "main": "./out/main/index.js",
   "scripts": {

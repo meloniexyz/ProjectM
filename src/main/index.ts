@@ -16,6 +16,9 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } },
 ])
 
+// PROJECTM_DATA lets you run against a throwaway library (handy for testing)
+if (process.env.PROJECTM_DATA) app.setPath('userData', process.env.PROJECTM_DATA)
+
 // One ProjectM at a time: launching it again focuses the open window (like Spotify).
 if (!app.requestSingleInstanceLock()) app.exit(0)
 app.on('second-instance', () => {
@@ -31,8 +34,6 @@ app.on('second-instance', () => {
 // Taskbar grouping and the Windows media overlay show "ProjectM"
 app.setAppUserModelId('com.projectm.app')
 
-// PROJECTM_DATA lets you run against a throwaway library (handy for testing)
-if (process.env.PROJECTM_DATA) app.setPath('userData', process.env.PROJECTM_DATA)
 const dataDir = app.getPath('userData')
 const library = new Library(dataDir)
 const playlists = new JsonFile<Playlist[]>(join(dataDir, 'playlists.json'), [])

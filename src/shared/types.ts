@@ -19,6 +19,8 @@ export interface Track {
   year?: number
   /** local files: gain (dB) that brings the song to -14 LUFS, from its ReplayGain tag */
   gainDb?: number
+  /** when you liked it (ms), for liked-songs lists that provide it */
+  likedAt?: number
 }
 
 export interface Playlist {

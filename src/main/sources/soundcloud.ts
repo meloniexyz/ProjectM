@@ -203,11 +203,10 @@ export class SoundCloud implements StreamingSource, AccountSource {
 
   async liked(): Promise<Track[]> {
     const me = await this.user()
-    const likes = await this.all<{ track?: ScTrack }>(`/users/${me.id}/track_likes`, { limit: '200' }, 5000)
+    const likes = await this.all<{ track?: ScTrack; created_at?: string }>(`/users/${me.id}/track_likes`, { limit: '200' }, 5000)
     return likes
-      .map((l) => l.track)
-      .filter((t): t is ScTrack => !!t && t.policy !== 'BLOCK')
-      .map((t) => this.toTrack(t))
+      .filter((l): l is { track: ScTrack; created_at?: string } => !!l.track && l.track.policy !== 'BLOCK')
+      .map((l) => ({ ...this.toTrack(l.track), likedAt: l.created_at ? Date.parse(l.created_at) : undefined }))
   }
 
   async playlists(): Promise<RemotePlaylist[]> {

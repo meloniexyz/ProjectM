@@ -2314,3 +2314,28 @@ kbd {
 .eq-tip {
   margin-top: 10px;
 }
+
+/* ---------- liked songs ---------- */
+
+.liked-art {
+  position: relative;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--hero) 85%, #fff 0%), color-mix(in srgb, var(--hero) 45%, #1b1b26));
+  color: #fff;
+  overflow: visible;
+}
+.liked-art.small {
+  border-radius: 5px;
+}
+.liked-art-badge {
+  position: absolute;
+  right: 6%;
+  bottom: 6%;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+}
+.liked-art.small .liked-art-badge {
+  right: -4px;
+  bottom: -4px;
+}

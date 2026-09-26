@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import type { RemotePlaylist, SoundCloudProfile, SourceId, Track } from '../../../shared/types'
 import {
   cancelSignIn,
@@ -19,7 +19,8 @@ import { SOURCES } from '../lib/sources'
 import { useStore } from '../lib/store'
 import { toast } from '../lib/ui'
 import { Artwork, Empty, Hero, PlayActions } from './common'
-import { PlayIcon, PlaylistIcon, PlusIcon, RefreshIcon, SourceBadge } from './Icons'
+import { HeartIcon, PlayIcon, PlaylistIcon, PlusIcon, RefreshIcon, SourceBadge } from './Icons'
+import { forgetLikedCount } from '../lib/liked'
 import { TrackList } from './TrackList'
 import { SearchView } from './Views'
 
@@ -574,6 +575,82 @@ export function RemotePlaylistView({ source, id, name }: { source: SourceId; id:
         />
       ) : (
         <TrackList tracks={tracks} />
+      )}
+    </>
+  )
+}
+
+/** Liked-songs art: a heart on the platform's colour, with its logo in the corner. */
+export function LikedArt({ source, size }: { source: SourceId; size?: number }) {
+  const style = { '--hero': SOURCES[source].color, ...(size ? { width: size, height: size } : {}) } as CSSProperties
+  return (
+    <div className={size ? 'art liked-art small' : 'art hero-art liked-art'} style={style}>
+      <HeartIcon size={size ? Math.round(size * 0.5) : 80} filled />
+      <span className="liked-art-badge">
+        <SourceBadge source={source} size={size ? Math.max(10, Math.round(size * 0.36)) : 30} />
+      </span>
+    </div>
+  )
+}
+
+/** Full page: one platform's liked songs. */
+export function LikedPage({ source }: { source: SourceId }) {
+  const status = useAccount(source)
+  const nav = useNav()
+  const [version, setVersion] = useState(0)
+  const { data, error, loading, reload } = useAsync(() => likedSongs(source), [source, version])
+  const tracks = data ?? []
+  const info = SOURCES[source]
+  const title = source === 'youtube' ? 'Liked Music' : source === 'soundcloud' ? 'Likes' : 'Liked Songs'
+
+  if (status && !status.connected) {
+    return (
+      <Empty icon={<HeartIcon size={30} />} title={`${info.name} isn't connected`}>
+        <p>Connect it to see what you've liked there.</p>
+        <button className="btn primary" onClick={() => nav.go({ kind: 'source', source })}>
+          Connect {info.name}
+        </button>
+      </Empty>
+    )
+  }
+
+  return (
+    <>
+      <Hero
+        kicker={`${info.name} · ${status?.userName ?? ''}`.replace(/ · $/, '')}
+        title={title}
+        color={info.color}
+        meta={loading ? 'Loading…' : `${plural(tracks.length, 'song')} · ${fmtTotal(sum(tracks))}`}
+        art={<LikedArt source={source} />}
+      />
+      <PlayActions tracks={tracks}>
+        <button
+          className="btn ghost"
+          title="Load the latest likes"
+          onClick={() => {
+            refreshAccount(source)
+            forgetLikedCount(source)
+            setVersion((v) => v + 1)
+          }}
+        >
+          <RefreshIcon size={15} /> Refresh
+        </button>
+        <button
+          className="btn ghost"
+          disabled={!tracks.length}
+          onClick={() => createPlaylist(tracks, `${title} (${info.name})`)}
+        >
+          <PlusIcon size={15} /> Save as playlist
+        </button>
+      </PlayActions>
+      {loading && !tracks.length ? (
+        <Loading what="your liked songs" />
+      ) : error ? (
+        <LoadError error={error} onRetry={reload} />
+      ) : tracks.length ? (
+        <TrackList tracks={tracks} />
+      ) : (
+        <Empty icon={<HeartIcon size={30} />} title="Nothing liked yet" />
       )}
     </>
   )

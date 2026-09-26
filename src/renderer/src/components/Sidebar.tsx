@@ -8,6 +8,9 @@ import { isConnected, SOURCE_ORDER, SOURCES, useConnections } from '../lib/sourc
 import { useStore } from '../lib/store'
 import { openMenu } from '../lib/ui'
 import { PlaylistArt } from './common'
+import { LikedArt } from './AccountViews'
+import { likedCountStore } from '../lib/liked'
+import { ACCOUNT_SOURCES } from '../lib/accounts'
 import { DiscIcon, HomeIcon, MusicIcon, PlusIcon, SearchIcon, SettingsIcon, SourceBadge } from './Icons'
 
 export function Sidebar() {
@@ -18,6 +21,8 @@ export function Sidebar() {
   const scan = useStore(lib, (s) => s.scan)
   useConnections()
   const accounts = useStore(accountStore, (s) => s.accounts)
+  const likedCounts = useStore(likedCountStore, (s) => s.counts)
+  const likedSources = ACCOUNT_SOURCES.filter((s) => accounts[s]?.connected)
 
   const item = (active: boolean, icon: ReactNode, label: string, onClick: () => void, extra?: ReactNode) => (
     <button className={cls('side-item', active && 'active')} onClick={onClick}>
@@ -35,6 +40,23 @@ export function Sidebar() {
         {item(v.kind === 'songs', <MusicIcon />, 'Songs', () => nav.go({ kind: 'songs' }))}
         {item(v.kind === 'albums' || v.kind === 'album', <DiscIcon />, 'Albums', () => nav.go({ kind: 'albums' }))}
       </div>
+
+      {likedSources.length > 0 && (
+        <div className="side-section">
+          <h4>Liked Songs</h4>
+          {likedSources.map((s) => (
+            <div key={s}>
+              {item(
+                v.kind === 'liked' && v.source === s,
+                <LikedArt source={s} size={24} />,
+                SOURCES[s].name,
+                () => nav.go({ kind: 'liked', source: s }),
+                likedCounts[s] != null ? <span className="count">{likedCounts[s]!.toLocaleString()}</span> : undefined,
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="side-section">
         <h4>Sources</h4>

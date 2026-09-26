@@ -272,8 +272,10 @@ export class Spotify implements StreamingSource, AccountSource {
   }
 
   async liked(): Promise<Track[]> {
-    const items = await this.paged<{ track: ApiTrack }>('/me/tracks?limit=50')
-    return items.map((i) => i.track).filter(playable).map(toTrack)
+    const items = await this.paged<{ track: ApiTrack; added_at?: string }>('/me/tracks?limit=50')
+    return items
+      .filter((i) => playable(i.track))
+      .map((i) => ({ ...toTrack(i.track), likedAt: i.added_at ? Date.parse(i.added_at) : undefined }))
   }
 
   async playlists(): Promise<RemotePlaylist[]> {

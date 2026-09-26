@@ -9,6 +9,7 @@ export type View =
   | { kind: 'playlist'; id: string }
   | { kind: 'source'; source: SourceId }
   | { kind: 'home' }
+  | { kind: 'liked'; source: SourceId }
   | { kind: 'settings'; tab?: 'general' | 'eq' }
   | { kind: 'remotePlaylist'; source: SourceId; id: string; name: string }
 

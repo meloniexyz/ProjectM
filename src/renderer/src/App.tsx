@@ -4,7 +4,8 @@ import { ContextMenuHost, Toasts } from './components/Overlays'
 import { PlayerBar } from './components/PlayerBar'
 import { QueuePanel } from './components/QueuePanel'
 import { Sidebar } from './components/Sidebar'
-import { RemotePlaylistView } from './components/AccountViews'
+import { LikedPage, RemotePlaylistView } from './components/AccountViews'
+import { preloadLiked } from './lib/liked'
 import { HomeView } from './components/HomeView'
 import { NowPlaying } from './components/NowPlaying'
 import { EditPlaylistHost } from './components/EditPlaylist'
@@ -67,7 +68,7 @@ export function App() {
 
   useEffect(() => {
     initLibrary()
-    initAccounts()
+    initAccounts().then(preloadLiked)
   }, [])
 
   // remember the page for "open where I left off"
@@ -153,6 +154,8 @@ function Page({ view }: { view: View }) {
       return <SourceView source={view.source} />
     case 'home':
       return <HomeView />
+    case 'liked':
+      return <LikedPage source={view.source} />
     case 'settings':
       return <SettingsView tab={view.tab} />
     case 'remotePlaylist':
