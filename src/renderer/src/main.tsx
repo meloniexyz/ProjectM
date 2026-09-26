@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import './styles.css'
 import * as player from './lib/player'
-import { curveThrough, eqResponse, loudnessDebug, outputMeanSquare } from './lib/loudness'
+import { curveThrough, eqResponse, finalLevel, loudnessDebug, outputMeanSquare } from './lib/loudness'
 import { getSettings, settingsStore, updateSettings } from './lib/settings'
 import { applyTheme } from './lib/themes'
 
@@ -11,6 +11,7 @@ import { applyTheme } from './lib/themes'
   player,
   loudnessDebug,
   outputMeanSquare,
+  finalLevel,
   eqResponse,
   curveThrough,
   settings: { get: getSettings, update: updateSettings },

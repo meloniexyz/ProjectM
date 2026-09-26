@@ -37,6 +37,13 @@ const api = {
     /** find the same song on YouTube Music */
     match: (t: { title: string; artist: string; duration: number }): Promise<Track | null> =>
       ipcRenderer.invoke('sources:match', t),
+    /** best-sounding match on YouTube Music or SoundCloud, with its stream ready to play */
+    bestAlternative: (t: {
+      title: string
+      artist: string
+      duration: number
+    }): Promise<{ track: Track; stream: StreamInfo; considered: string[] } | null> =>
+      ipcRenderer.invoke('sources:bestAlternative', t),
   },
   accounts: {
     status: (s: SourceId): Promise<AccountStatus> => ipcRenderer.invoke('account:status', s),
@@ -58,6 +65,8 @@ const api = {
     canLike: (s: SourceId): Promise<boolean> => ipcRenderer.invoke('account:canLike', s),
     isLiked: (s: SourceId, ids: string[]): Promise<boolean[]> => ipcRenderer.invoke('account:isLiked', s, ids),
     setLiked: (s: SourceId, id: string, liked: boolean): Promise<void> => ipcRenderer.invoke('account:setLiked', s, id, liked),
+    addToPlaylist: (s: SourceId, playlistId: string, trackId: string): Promise<void> =>
+      ipcRenderer.invoke('account:addToPlaylist', s, playlistId, trackId),
   },
   soundcloud: {
     findProfiles: (q: string): Promise<SoundCloudProfile[]> => ipcRenderer.invoke('soundcloud:findProfiles', q),

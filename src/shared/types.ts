@@ -53,6 +53,9 @@ export interface StreamInfo {
   gainDb?: number
   /** what's being played, for display, e.g. "Opus · 134 kbps" */
   quality?: string
+  /** for comparing streams between services */
+  codec?: 'opus' | 'aac' | 'mp3'
+  kbps?: number
 }
 
 /** A signed-in streaming account (Spotify, YouTube Music, SoundCloud). */
@@ -72,6 +75,8 @@ export interface RemotePlaylist {
   artwork?: string
   owner: string
   total: number
+  /** you can add songs to it (your own or collaborative) */
+  editable?: boolean
 }
 
 export interface Lyrics {

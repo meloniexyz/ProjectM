@@ -201,18 +201,40 @@ function LyricsCard({ track }: { track: Track }) {
   if (!options) body = <div className="lyrics-empty">Looking for lyrics…</div>
   else if (!lyrics) body = <div className="lyrics-empty">No lyrics found for this song.</div>
   else if (lyrics.instrumental) body = <div className="lyrics-empty">Instrumental ♪</div>
-  else if (synced)
-    body = synced.map((l, i) => (
-      <p
-        key={i}
-        data-line={i}
-        className={cls('lyric', i === current && 'on', i < current && 'past')}
-        // clicking a line jumps the song to it (respecting the sync shift)
-        onClick={() => seek(Math.max(0, l.time - offset))}
-      >
-        {l.text || '♪'}
-      </p>
-    ))
+  else if (synced) {
+    const isGap = (t: string) => !t.trim() || /^[♪♫s]+$/.test(t)
+    const intro = synced.length > 0 && synced[0].time > 3
+    body = (
+      <>
+        {intro && (
+          <p data-line={-1} className={cls('lyric gap', current === -1 && 'on')} onClick={() => seek(0)}>
+            <Dots />
+          </p>
+        )}
+        {synced.map((l, i) => {
+          const on = i === current
+          if (isGap(l.text)) {
+            return (
+              <p key={i} data-line={i} className={cls('lyric gap', on && 'on', i < current && 'past')} onClick={() => seek(Math.max(0, l.time - offset))}>
+                <Dots />
+              </p>
+            )
+          }
+          return (
+            <p
+              key={i}
+              data-line={i}
+              className={cls('lyric', on && 'on', i < current && 'past')}
+              // clicking a line jumps the song to it (respecting the sync shift)
+              onClick={() => seek(Math.max(0, l.time - offset))}
+            >
+              {l.text}
+            </p>
+          )
+        })}
+      </>
+    )
+  }
   else
     body = lyrics.plain!.split('\n').map((l, i) => (
       <p key={i} className="lyric plain">
@@ -375,4 +397,13 @@ const InfoRow = ({ label, children }: { label: string; children: ReactNode }) =>
     <span className="info-label">{label}</span>
     <span className="info-value">{children}</span>
   </div>
+)
+
+/** Instrumental break / intro marker; pulses while it's the current "line". */
+const Dots = () => (
+  <span className="lyric-dots" aria-label="instrumental">
+    <i />
+    <i />
+    <i />
+  </span>
 )

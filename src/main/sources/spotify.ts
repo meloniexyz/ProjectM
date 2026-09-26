@@ -25,6 +25,8 @@ const SCOPES = [
   'user-modify-playback-state',
   'user-read-currently-playing',
   'user-top-read',
+  'playlist-modify-private',
+  'playlist-modify-public',
 ].join(' ')
 
 interface Saved {
@@ -71,11 +73,16 @@ export class Spotify implements StreamingSource, AccountSource {
   private refreshing: Promise<string> | null = null
   private deviceId: string | null = null
 
+  /** Liked songs saved on disk: re-downloaded only when Spotify reports a change (saves API quota). */
+  private likedCache: JsonFile<{ total: number; newest?: string; tracks: Track[] } | null>
+
   constructor(file: string) {
     this.store = new JsonFile<Saved>(file, {})
+    this.likedCache = new JsonFile(file.replace(/\.json$/, '-liked.json'), null)
   }
 
   load() {
+    this.likedCache.load()
     return this.store.load()
   }
 
@@ -225,6 +232,9 @@ export class Spotify implements StreamingSource, AccountSource {
       } catch {
         // no body
       }
+      if (/QUOTA_EXCEEDED/i.test(msg)) {
+        throw new Error("Spotify's request limit for your developer app is used up for now. It resets after a while; try again later.")
+      }
       throw new Error(`Spotify: ${msg}`)
     }
     const text = await res.text()
@@ -272,11 +282,29 @@ export class Spotify implements StreamingSource, AccountSource {
     return res.items.filter(playable).map(toTrack)
   }
 
+  /**
+   * Your liked songs. One cheap request checks the count and the newest like; the full list
+   * (dozens of requests for big libraries) is only downloaded again when one of those changed.
+   * Spotify gives personal developer apps a small request quota, so this matters.
+   */
   async liked(): Promise<Track[]> {
+    const cached = this.likedCache.get()
+    let head: { total: number; items: { added_at?: string }[] }
+    try {
+      head = await this.api('/me/tracks?limit=1')
+    } catch (err) {
+      if (cached) return cached.tracks // offline or over quota: show what we have
+      throw err
+    }
+    const newest = head.items[0]?.added_at
+    if (cached && cached.total === head.total && cached.newest === newest) return cached.tracks
+
     const items = await this.paged<{ track: ApiTrack; added_at?: string }>('/me/tracks?limit=50')
-    return items
+    const tracks = items
       .filter((i) => playable(i.track))
       .map((i) => ({ ...toTrack(i.track), likedAt: i.added_at ? Date.parse(i.added_at) : undefined }))
+    await this.likedCache.set({ total: head.total, newest, tracks })
+    return tracks
   }
 
   async isLiked(ids: string[]): Promise<boolean[]> {
@@ -297,15 +325,25 @@ export class Spotify implements StreamingSource, AccountSource {
     }
   }
 
+  private myId: Promise<string> | null = null
+
   async playlists(): Promise<RemotePlaylist[]> {
-    const items = await this.paged<{
-      id: string
-      name: string
-      images?: { url: string }[] | null
-      owner?: { display_name?: string }
-      items?: { total: number }
-      tracks?: { total: number }
-    } | null>('/me/playlists?limit=50')
+    this.myId ??= this.api<{ id: string }>('/me').then((me) => me.id).catch((err) => {
+      this.myId = null
+      throw err
+    })
+    const [items, me] = await Promise.all([
+      this.paged<{
+        id: string
+        name: string
+        collaborative?: boolean
+        images?: { url: string }[] | null
+        owner?: { id?: string; display_name?: string }
+        items?: { total: number }
+        tracks?: { total: number }
+      } | null>('/me/playlists?limit=50'),
+      this.myId.catch(() => ''),
+    ])
     return items
       .filter((p) => p !== null)
       .map((p) => ({
@@ -314,7 +352,22 @@ export class Spotify implements StreamingSource, AccountSource {
         artwork: p!.images?.[0]?.url,
         owner: p!.owner?.display_name ?? '',
         total: p!.items?.total ?? p!.tracks?.total ?? 0,
+        editable: !!p!.collaborative || (!!me && p!.owner?.id === me),
       }))
+  }
+
+  async addToPlaylist(playlistId: string, trackId: string) {
+    try {
+      await this.api(`/playlists/${encodeURIComponent(playlistId)}/items`, {
+        method: 'POST',
+        body: JSON.stringify({ uris: [`spotify:track:${trackId}`] }),
+      })
+    } catch (err) {
+      if (/403|insufficient|scope|forbidden/i.test((err as Error).message)) {
+        throw new Error('Reconnect Spotify (Settings → Accounts → Disconnect, then Connect) to let ProjectM add to your playlists.')
+      }
+      throw err
+    }
   }
 
   async playlistTracks(id: string): Promise<Track[]> {

@@ -6,7 +6,7 @@ import { Library } from './library'
 import { handleMedia } from './media'
 import { SoundCloud } from './sources/soundcloud'
 import { Spotify } from './sources/spotify'
-import type { AccountSource, StreamingSource } from './sources/types'
+import type { AccountSource, StreamInfo, StreamingSource } from './sources/types'
 import { getLyrics } from './lyrics'
 import { ListenHistory } from './history'
 import { getSongInfo } from './songinfo'
@@ -161,6 +161,36 @@ ipcMain.handle('sources:match', async (_, t: { title: string; artist: string; du
   }
   return null
 })
+
+/**
+ * Codecs differ in how good they sound per kbps: Opus beats AAC, AAC beats MP3 at the same
+ * bitrate. Effective quality lets e.g. YouTube Opus 134 and SoundCloud AAC 160 be compared fairly.
+ */
+const CODEC_EFFICIENCY = { opus: 1.4, aac: 1.15, mp3: 1 } as const
+const effectiveKbps = (s: StreamInfo) => (s.kbps ?? 96) * CODEC_EFFICIENCY[s.codec ?? 'mp3']
+
+/**
+ * The best-sounding copy of a song on YouTube Music or SoundCloud: both are searched at once,
+ * only real matches (same artist, length within 15 s) are kept, and their actual streams are
+ * compared. When they're about equal (within 8%), the closer match wins.
+ */
+ipcMain.handle('sources:bestAlternative', async (_, t: { title: string; artist: string; duration: number }) => {
+  const candidates = await Promise.all(
+    ([['youtube', youtube], ['soundcloud', soundcloud]] as const).map(async ([id, source]) => {
+      const m = await source.matchScored(t).catch(() => null)
+      if (!m) return null
+      const stream = await streamingSource(id).resolve(m.track.id).catch(() => null)
+      return stream ? { track: m.track, stream, score: m.score, quality: effectiveKbps(stream) } : null
+    }),
+  )
+  const found = candidates.filter((c) => c !== null)
+  if (!found.length) return null
+  found.sort((a, b) => {
+    const q = b.quality - a.quality
+    return Math.abs(q) > Math.max(a.quality, b.quality) * 0.08 ? q : b.score - a.score
+  })
+  return { track: found[0].track, stream: found[0].stream, considered: found.map((c) => `${c.track.source}: ${c.stream.quality}`) }
+})
 ipcMain.handle('account:status', (_, s: SourceId) => account(s).status())
 ipcMain.handle('account:login', (_, s: SourceId, arg?: string) => account(s).login(arg))
 ipcMain.handle('account:cancel', () => youtube.cancelLogin())
@@ -177,6 +207,11 @@ ipcMain.handle('account:isLiked', async (_, s: SourceId, ids: string[]) => {
   const src = accounts[s]
   if (!src?.isLiked || !(await src.status()).connected) return ids.map(() => false)
   return src.isLiked(ids)
+})
+ipcMain.handle('account:addToPlaylist', (_, s: SourceId, playlistId: string, trackId: string) => {
+  const src = accounts[s]
+  if (!src?.addToPlaylist) throw new Error("This platform doesn't allow adding to playlists from other apps")
+  return src.addToPlaylist(playlistId, trackId)
 })
 ipcMain.handle('account:setLiked', (_, s: SourceId, id: string, liked: boolean) => {
   const src = accounts[s]

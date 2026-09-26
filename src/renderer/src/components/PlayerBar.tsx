@@ -15,6 +15,7 @@ import {
   toggleMute,
   toggleNormalize,
   toggleShuffle,
+  volumeGain,
   usePlayer,
 } from '../lib/player'
 import { Artwork, Slider } from './common'
@@ -176,7 +177,17 @@ export function PlayerBar({ panel, onTogglePanel }: { panel: Panel | null; onTog
         <button className={cls('icon-btn', panel === 'queue' && 'on')} title="Queue" onClick={() => onTogglePanel('queue')}>
           <QueueIcon size={18} />
         </button>
-        <button className="icon-btn" title={muted ? 'Unmute' : 'Mute'} onClick={toggleMute}>
+        <button
+          className="icon-btn"
+          title={
+            muted
+              ? 'Unmute'
+              : volumeGain(volume) > 1.02
+                ? `Boosted +${(20 * Math.log10(volumeGain(volume))).toFixed(1)} dB (click to mute)`
+                : 'Mute'
+          }
+          onClick={toggleMute}
+        >
           <VolumeIcon size={18} level={level} />
         </button>
         <Slider

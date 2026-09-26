@@ -77,6 +77,12 @@ export const remotePlaylists = (s: SourceId) => cached<RemotePlaylist[]>(`${s}:p
 export const remotePlaylistTracks = (s: SourceId, id: string) =>
   cached<Track[]>(`${s}:playlist:${id}`, () => api.playlistTracks(s, id))
 
+/** Forget one remote playlist's cached songs (after adding to it). */
+export function forgetRemotePlaylist(source: SourceId, id: string) {
+  cache.delete(`${source}:playlist:${id}`)
+  cache.delete(`${source}:playlists`)
+}
+
 export function refreshAccount(source: SourceId) {
   for (const key of [...cache.keys()]) if (key.startsWith(`${source}:`)) cache.delete(key)
 }

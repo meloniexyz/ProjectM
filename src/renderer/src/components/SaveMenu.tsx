@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { SourceId, Track } from '../../../shared/types'
-import { accountStore, refreshAccount } from '../lib/accounts'
+import type { RemotePlaylist, SourceId, Track } from '../../../shared/types'
+import { accountStore, forgetRemotePlaylist, refreshAccount, remotePlaylists } from '../lib/accounts'
 import { cls, norm } from '../lib/format'
 import { addToPlaylist, createPlaylist, lib, removeTrackFromPlaylist } from '../lib/library'
 import { forgetLikedCount, preloadLiked } from '../lib/liked'
@@ -8,7 +8,7 @@ import { cleanError, SOURCES } from '../lib/sources'
 import { createStore, useStore } from '../lib/store'
 import { toast } from '../lib/ui'
 import { LikedArt } from './AccountViews'
-import { PlaylistArt } from './common'
+import { Artwork, PlaylistArt } from './common'
 import { PlusIcon, SearchIcon } from './Icons'
 
 /** Whether songs are in your liked songs on their platform (uid -> liked), filled in as we check. */
@@ -43,6 +43,41 @@ export function SaveMenu({ track, anchor, onClose }: { track: Track; anchor: DOM
     () => new Set(playlists.filter((p) => p.tracks.some((t) => t.uid === track.uid)).map((p) => p.id)),
   )
   const [saving, setSaving] = useState(false)
+  // your own playlists on the song's platform (songs can only go into playlists on their own service)
+  const [remote, setRemote] = useState<RemotePlaylist[] | null>(null)
+  const [added, setAdded] = useState<Record<string, 'adding' | 'done'>>({})
+  useEffect(() => {
+    if (!canLikeOn(track.source)) return
+    let live = true
+    remotePlaylists(track.source).then(
+      (list) => live && setRemote(list.filter((p) => p.editable)),
+      () => live && setRemote([]),
+    )
+    return () => {
+      live = false
+    }
+  }, [track])
+  const remoteShown = useMemo(() => {
+    const q = norm(query.trim())
+    return (remote ?? []).filter((p) => !q || norm(p.name).includes(q))
+  }, [remote, query])
+
+  const addRemote = async (p: RemotePlaylist) => {
+    setAdded((a) => ({ ...a, [p.id]: 'adding' }))
+    try {
+      await window.api.accounts.addToPlaylist(track.source, p.id, track.id)
+      forgetRemotePlaylist(track.source, p.id)
+      setAdded((a) => ({ ...a, [p.id]: 'done' }))
+      toast(`Added to "${p.name}" on ${SOURCES[track.source].name}`)
+    } catch (err) {
+      setAdded((a) => {
+        const next = { ...a }
+        delete next[p.id]
+        return next
+      })
+      toast(cleanError(err).message)
+    }
+  }
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   const reason = likeUnavailableReason(track.source)
@@ -158,7 +193,33 @@ export function SaveMenu({ track, anchor, onClose }: { track: Track; anchor: DOM
               <input type="checkbox" className="save-check" checked={inPlaylists.has(p.id)} onChange={() => toggle(p.id)} />
             </label>
           ))}
-          {!shown.length && query && <div className="save-empty">No playlist matches "{query}"</div>}
+          {!shown.length && !remoteShown.length && query && <div className="save-empty">No playlist matches "{query}"</div>}
+          {remoteShown.length > 0 && (
+            <>
+              <div className="save-section">On {SOURCES[track.source].name}</div>
+              {remoteShown.map((p) => (
+                <div key={p.id} className="save-row">
+                  <Artwork src={p.artwork} size={34} />
+                  <span className="save-name">
+                    {p.name}
+                    <small>
+                      {SOURCES[track.source].name} playlist{p.total ? ` · ${p.total} songs` : ''}
+                    </small>
+                  </span>
+                  <button
+                    className={cls('btn small', added[p.id] === 'done' ? 'ghost' : '')}
+                    disabled={!!added[p.id]}
+                    onClick={() => addRemote(p)}
+                  >
+                    {added[p.id] === 'done' ? 'Added ✓' : added[p.id] === 'adding' ? 'Adding…' : 'Add'}
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+          {remote === null && canLikeOn(track.source) && (
+            <div className="save-empty">Loading your {SOURCES[track.source].name} playlists…</div>
+          )}
         </div>
         <div className="save-foot">
           <button className="btn small ghost" onClick={onClose}>

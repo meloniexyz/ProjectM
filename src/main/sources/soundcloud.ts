@@ -1,6 +1,6 @@
 import type { AccountStatus, RemotePlaylist, SoundCloudProfile, Track } from '../../shared/types'
 import type { Secrets } from '../secrets'
-import { bestMatch, type MatchTarget } from './match'
+import { bestMatch, scoredMatch, type MatchTarget } from './match'
 import { UA, type AccountSource, type StreamInfo, type StreamingSource } from './types'
 
 const PROFILE_KEY = 'soundcloud.profile'
@@ -275,6 +275,10 @@ export class SoundCloud implements StreamingSource, AccountSource {
     return bestMatch(t, await this.search(`${t.artist.split(',')[0].trim()} ${t.title}`, 15))
   }
 
+  async matchScored(t: MatchTarget) {
+    return scoredMatch(t, await this.search(`${t.artist.split(',')[0].trim()} ${t.title}`, 15))
+  }
+
   async resolve(id: string): Promise<StreamInfo> {
     const track = await this.api<ScTrack>(`/tracks/${id}`)
     const options = (track.media?.transcodings ?? []).filter((t) => !t.snipped)
@@ -286,6 +290,9 @@ export class SoundCloud implements StreamingSource, AccountSource {
     const params: Record<string, string> = {}
     if (track.track_authorization) params.track_authorization = track.track_authorization
     const { url } = await this.api<{ url: string }>(pick.url, params)
-    return { url, kind: pick.format.protocol === 'hls' ? 'hls' : 'direct', quality: presetLabel(pick) }
+    const p = pick.preset ?? ''
+    const kbps = Number(p.match(/(\d+)k/)?.[1]) || (p.startsWith('mp3') ? 128 : p.startsWith('opus') ? 64 : 160)
+    const codec = p.startsWith('mp3') ? 'mp3' : p.startsWith('opus') ? 'opus' : 'aac'
+    return { url, kind: pick.format.protocol === 'hls' ? 'hls' : 'direct', quality: presetLabel(pick), codec, kbps }
   }
 }

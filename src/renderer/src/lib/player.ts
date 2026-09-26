@@ -191,8 +191,17 @@ const currentItem = () => state.queue[state.index]
 let engine: 'audio' | 'spotify' = 'audio'
 let spotifyVolumeTimer = 0
 
+/**
+ * Slider position (0..1) to gain: one smooth curve that sounds even to the ear and tops out at
+ * 2x (+6 dB). Full normal volume is reached around 65%; above that it boosts, with a limiter
+ * keeping peaks clean.
+ */
+export function volumeGain(v: number) {
+  return 2 * Math.max(0, v) ** 1.6
+}
+
 function applyVolume() {
-  setOutputVolume(state.muted ? 0 : state.volume ** 2) // squared feels linear to the ear
+  setOutputVolume(state.muted ? 0 : volumeGain(state.volume))
   if (engine === 'spotify') {
     clearTimeout(spotifyVolumeTimer)
     spotifyVolumeTimer = window.setTimeout(() => sp.volume(spotifyVolume()).catch(() => {}), 250)
@@ -202,7 +211,8 @@ applyVolume()
 
 /** Our 0..1 volume as Spotify's 0..100, on the same curve, plus the user's Spotify level adjustment. */
 const spotifyVolume = () =>
-  state.muted ? 0 : Math.min(100, Math.round(state.volume ** 2 * 100 * 10 ** (getSettings().spotifyLevelDb / 20)))
+  // Spotify can't go past 100%, so its boost zone just stays at full volume
+  state.muted ? 0 : Math.min(100, Math.round(Math.min(1, volumeGain(state.volume)) * 100 * 10 ** (getSettings().spotifyLevelDb / 20)))
 
 // react to settings changes
 let lastSettings = getSettings()
@@ -383,11 +393,12 @@ async function playFallback(track: Track, seq: number) {
   }
   let stream: StreamInfo
   try {
-    const match = await window.api.sources.match({ title: track.title, artist: track.artist, duration: track.duration })
+    // searches both YouTube Music and SoundCloud and picks the better-sounding stream
+    const best = await window.api.sources.bestAlternative({ title: track.title, artist: track.artist, duration: track.duration })
     if (seq !== loadSeq) return
-    if (!match) throw new Error("Spotify app isn't available and no match was found on YouTube Music or SoundCloud")
-    emit({ via: match.source })
-    stream = await resolveStream(match)
+    if (!best) throw new Error("Spotify app isn't available and no match was found on YouTube Music or SoundCloud")
+    emit({ via: best.track.source })
+    stream = best.stream
   } catch (err) {
     if (seq === loadSeq) fail(track, cleanError(err))
     return

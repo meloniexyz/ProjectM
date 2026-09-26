@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { Innertube, Log, Platform, UniversalCache, type OAuth2Tokens } from 'youtubei.js'
 import type { AccountStatus, RemotePlaylist, Track } from '../../shared/types'
 import type { Secrets } from '../secrets'
-import { bestMatch, type MatchTarget } from './match'
+import { bestMatch, scoredMatch, type MatchTarget } from './match'
 import { PoTokenMinter } from './potoken'
 import { UA, type AccountSource, type StreamInfo, type StreamingSource } from './types'
 
@@ -89,6 +89,8 @@ interface ResolvedStream {
   /** gain (dB) to reach -14 LUFS, from YouTube's own loudness measurement */
   gainDb?: number
   quality?: string
+  codec?: 'opus' | 'aac'
+  kbps?: number
 }
 
 /**
@@ -457,6 +459,20 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     return ids.map((id) => res.items.find((r) => r.videoId === id)?.rating === 'like')
   }
 
+  async addToPlaylist(playlistId: string, videoId: string) {
+    if (!this.saved()) throw new Error('Sign in to YouTube Music to add to your playlists')
+    const token = await this.bearer()
+    const res = await fetch('https://www.googleapis.com/youtube/v3/playlistItems?part=snippet', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ snippet: { playlistId, resourceId: { kind: 'youtube#video', videoId } } }),
+    })
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: { message?: string } }
+      throw new Error(`YouTube: ${j.error?.message?.replace(/<[^>]+>/g, '') || res.status}`)
+    }
+  }
+
   async setLiked(id: string, liked: boolean) {
     if (!this.saved()) throw new Error('Sign in to YouTube Music to like songs')
     const token = await this.bearer()
@@ -488,6 +504,7 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
             artwork: bestThumb(p.snippet?.thumbnails),
             owner: p.snippet?.channelTitle ?? '',
             total: p.contentDetails?.itemCount ?? 0,
+            editable: true, // mine=true only returns your own playlists
           })
         }
         pageToken = page.nextPageToken ?? ''
@@ -557,12 +574,23 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     return bestMatch(t, await this.search(`${t.artist.split(',')[0].trim()} ${t.title}`, 10))
   }
 
+  async matchScored(t: MatchTarget) {
+    return scoredMatch(t, await this.search(`${t.artist.split(',')[0].trim()} ${t.title}`, 10))
+  }
+
   // ---------- streaming ----------
 
   /** Audio goes through our media:// proxy so we control ranges and can refresh expired URLs. */
   async resolve(id: string): Promise<StreamInfo> {
     const stream = await this.stream(id) // resolve now so errors reach the player immediately
-    return { url: `media://youtube/${encodeURIComponent(id)}`, kind: 'direct', gainDb: stream.gainDb, quality: stream.quality }
+    return {
+      url: `media://youtube/${encodeURIComponent(id)}`,
+      kind: 'direct',
+      gainDb: stream.gainDb,
+      quality: stream.quality,
+      codec: stream.codec,
+      kbps: stream.kbps,
+    }
   }
 
   async stream(id: string, fresh = false): Promise<ResolvedStream> {
@@ -592,6 +620,8 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
           // refresh a few minutes before YouTube's own expiry (default: 1 hour)
           expires: expireParam ? expireParam * 1000 - 5 * 60_000 : Date.now() + 60 * 60_000,
           quality: `${format.mime_type.includes('webm') ? 'Opus' : 'AAC'} · ${Math.round((format.average_bitrate ?? format.bitrate) / 1000)} kbps`,
+          codec: format.mime_type.includes('webm') ? 'opus' : 'aac',
+          kbps: Math.round((format.average_bitrate ?? format.bitrate) / 1000),
           gainDb:
             format.track_absolute_loudness_lkfs != null
               ? -14 - format.track_absolute_loudness_lkfs

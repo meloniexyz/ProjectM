@@ -30,6 +30,11 @@ export interface MatchTarget {
  * length must be within 15 s (so remixes, live versions and covers lose). Null if none is close.
  */
 export function bestMatch(t: MatchTarget, candidates: Track[]): Track | null {
+  return scoredMatch(t, candidates)?.track ?? null
+}
+
+/** Like bestMatch, with the match score (higher = closer title/artist/length). */
+export function scoredMatch(t: MatchTarget, candidates: Track[]): { track: Track; score: number } | null {
   let best: { track: Track; score: number } | null = null
   for (const c of candidates) {
     const dur = t.duration && c.duration ? Math.abs(t.duration - c.duration) : 0
@@ -41,5 +46,5 @@ export function bestMatch(t: MatchTarget, candidates: Track[]): Track | null {
     const score = title * 2 + artist - dur / 10
     if (!best || score > best.score) best = { track: c, score }
   }
-  return best && best.score > 1 ? best.track : null
+  return best && best.score > 1 ? best : null
 }

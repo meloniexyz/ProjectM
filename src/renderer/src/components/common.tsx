@@ -157,7 +157,7 @@ export function Slider(props: {
       onPointerCancel={() => setDrag(null)}
     >
       <div className="slider-track">
-        <div className="slider-fill" style={{ width: `${shown * 100}%` }} />
+        <div className="slider-fill" style={{ width: `${shown * 100}%`, '--fill': Math.max(shown, 0.001) } as CSSProperties} />
       </div>
       <div className="slider-thumb" style={{ left: `${shown * 100}%` }} />
     </div>

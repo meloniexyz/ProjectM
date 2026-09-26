@@ -19,6 +19,8 @@ export interface AccountSource {
   isLiked?(ids: string[]): Promise<boolean[]>
   /** like / unlike a song on this platform */
   setLiked?(id: string, liked: boolean): Promise<void>
+  /** add a song (this platform's id) to one of your playlists on this platform */
+  addToPlaylist?(playlistId: string, trackId: string): Promise<void>
 }
 
 export const UA =

@@ -27,6 +27,20 @@ let eqFilters: BiquadFilterNode[] = []
 let outMeter: AnalyserNode | null = null
 let outK: AnalyserNode | null = null
 
+/** Diagnostics: mean square and peak of what reaches the speakers. */
+export function finalLevel() {
+  if (!finalMeter) return { ms: 0, peak: 0 }
+  const b = new Float32Array(finalMeter.fftSize)
+  finalMeter.getFloatTimeDomainData(b)
+  let ms = 0
+  let peak = 0
+  for (const v of b) {
+    ms += v * v
+    peak = Math.max(peak, Math.abs(v))
+  }
+  return { ms: ms / b.length, peak }
+}
+
 /** Diagnostics: K-weighted mean square of the output right now. */
 export function outputMeanSquare() {
   if (!outK) return 0
@@ -39,6 +53,9 @@ let direct: GainNode
 let limited: GainNode
 let limitedTrim = 1
 let limiterOn = false
+let finalMeter: AnalyserNode | null = null
+let outDirect: GainNode
+let outLimited: GainNode
 /** leveling gain currently applied (dB) */
 let levelDb = 0
 /** how far the EQ can push any frequency above the original, after loudness compensation (dB) */
@@ -108,7 +125,25 @@ export function connectAudio(audio: HTMLAudioElement) {
 
   direct.gain.value = 1
   limited.gain.value = 0
-  output.connect(ctx.destination)
+  // After the volume: straight to the speakers, or through a final limiter while the volume is
+  // boosted past 100% (the top of the slider), so the extra loudness never distorts.
+  outDirect = ctx.createGain()
+  outLimited = ctx.createGain()
+  const outLimiter = ctx.createDynamicsCompressor()
+  outLimiter.threshold.value = -0.5
+  outLimiter.knee.value = 0
+  outLimiter.ratio.value = 20
+  outLimiter.attack.value = 0.001
+  outLimiter.release.value = 0.05 // quick recovery after each peak, so the boost stays audible
+  output.connect(outDirect).connect(ctx.destination)
+  output.connect(outLimiter).connect(outLimited).connect(ctx.destination)
+  outDirect.gain.value = 1
+  outLimited.gain.value = 0
+  // diagnostics only: exactly what reaches the speakers (after volume and boost limiter)
+  finalMeter = ctx.createAnalyser()
+  finalMeter.fftSize = 8192
+  outDirect.connect(finalMeter)
+  outLimited.connect(finalMeter)
   // diagnostics only: level of what actually goes to the speakers (before the volume stage)
   outMeter = ctx.createAnalyser()
   outMeter.fftSize = 2048
@@ -363,7 +398,11 @@ const RESPONSE_FREQS = new Float32Array(Array.from({ length: 160 }, (_, i) => 20
 /** The player's volume (0..1 already curved), applied after normalization. */
 export function setOutputVolume(level: number) {
   if (!ctx) return
-  output.gain.setTargetAtTime(level, ctx.currentTime, 0.03)
+  const t = ctx.currentTime
+  output.gain.setTargetAtTime(level, t, 0.03)
+  const boosting = level > 1.02
+  outDirect.gain.setTargetAtTime(boosting ? 0 : 1, t, 0.02)
+  outLimited.gain.setTargetAtTime(boosting ? limitedTrim : 0, t, 0.02)
 }
 
 export function resumeAudio() {
