@@ -14,6 +14,7 @@ export function NowPlaying({ onClose, onOpenQueue }: { onClose: () => void; onOp
   const nav = useNav()
   const track = usePlayer((s) => s.queue[s.index]?.track)
   const via = usePlayer((s) => s.via)
+  const quality = usePlayer((s) => s.quality)
   const nextItem = usePlayer((s) => s.queue[s.index + 1])
   const index = usePlayer((s) => s.index)
   const { showLyrics } = useSettings()
@@ -55,6 +56,7 @@ export function NowPlaying({ onClose, onOpenQueue }: { onClose: () => void; onOp
               </div>
               <SourceBadge source={track.source} size={22} />
             </div>
+            {quality && <div className="quality-chip">{quality}</div>}
             {via && (
               <div className="np-via">
                 <SourceBadge source={via} size={13} /> Playing from {SOURCES[via].name} because the Spotify app isn't

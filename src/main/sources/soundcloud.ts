@@ -16,8 +16,30 @@ function profileUrl(input: string) {
 
 const API = 'https://api-v2.soundcloud.com'
 
+/** Higher = better sound. Presets look like "aac_160k", "mp3_1_0" (128k), "opus_0_0" (64k), "abr_sq". */
+function presetRank(t: { preset?: string; format: { protocol: string } }) {
+  const p = t.preset ?? ''
+  const kbps = Number(p.match(/(\d+)k/)?.[1])
+  if (p.startsWith('aac') && kbps) return kbps + 10 // AAC beats MP3 at the same bitrate
+  if (p.startsWith('mp3')) return 128 + (t.format.protocol === 'progressive' ? 1 : 0)
+  if (p.startsWith('abr')) return 120
+  if (p.startsWith('opus')) return 64
+  return kbps || 50
+}
+
+function presetLabel(t: { preset?: string }) {
+  const p = t.preset ?? ''
+  const kbps = p.match(/(\d+)k/)?.[1]
+  if (p.startsWith('aac')) return kbps ? `AAC · ${kbps} kbps` : 'AAC'
+  if (p.startsWith('mp3')) return 'MP3 · 128 kbps'
+  if (p.startsWith('opus')) return 'Opus · 64 kbps'
+  if (p.startsWith('abr')) return 'AAC · adaptive'
+  return undefined
+}
+
 interface Transcoding {
   url: string
+  preset?: string
   snipped?: boolean
   format: { protocol: string; mime_type: string }
 }
@@ -257,15 +279,14 @@ export class SoundCloud implements StreamingSource, AccountSource {
   async resolve(id: string): Promise<StreamInfo> {
     const track = await this.api<ScTrack>(`/tracks/${id}`)
     const options = (track.media?.transcodings ?? []).filter((t) => !t.snipped)
-    const pick =
-      options.find((t) => t.format.protocol === 'progressive') ??
-      options.find((t) => t.format.protocol === 'hls' && t.format.mime_type.includes('mp4')) ??
-      options.find((t) => t.format.protocol === 'hls' && t.format.mime_type === 'audio/mpeg')
+    // best sound first; encrypted streams (Go+ DRM) can't be played outside SoundCloud's own apps
+    const playable = options.filter((t) => ['hls', 'progressive'].includes(t.format.protocol))
+    const pick = playable.sort((a, b) => presetRank(b) - presetRank(a))[0]
     if (!pick) throw new Error('SoundCloud has no playable stream for this track')
 
     const params: Record<string, string> = {}
     if (track.track_authorization) params.track_authorization = track.track_authorization
     const { url } = await this.api<{ url: string }>(pick.url, params)
-    return { url, kind: pick.format.protocol === 'hls' ? 'hls' : 'direct' }
+    return { url, kind: pick.format.protocol === 'hls' ? 'hls' : 'direct', quality: presetLabel(pick) }
   }
 }

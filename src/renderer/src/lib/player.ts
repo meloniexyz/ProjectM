@@ -29,6 +29,8 @@ export interface PlayerState {
   error: string | null
   /** even out loudness between songs and sources */
   normalize: boolean
+  /** what's being played right now, e.g. "Opus · 134 kbps" */
+  quality: string | null
   /** set when the song plays from a different service than its own (Spotify -> YouTube Music) */
   via: SourceId | null
 }
@@ -53,6 +55,7 @@ function restore(): PlayerState {
     repeat: 'off',
     error: null,
     normalize: true,
+    quality: null,
     via: null,
   }
   try {
@@ -154,6 +157,7 @@ function detachHls() {
 /** Points the audio element at a stream. Returns false if a newer load() superseded this one. */
 async function attach(stream: StreamInfo, seq: number, track: Track) {
   detachHls()
+  emit({ quality: stream.quality ?? null }, false)
   startSong(track.uid, stream.gainDb)
   resumeAudio()
   if (stream.kind === 'direct') {
@@ -308,6 +312,7 @@ async function spotifyStart(track: Track, seq: number, positionSec = 0) {
     return
   }
   if (seq !== loadSeq) return
+  emit({ quality: 'Spotify app quality' }, false)
   sp.volume(spotifyVolume()).catch(() => {})
   spTrackId = track.id
   spSeenPlaying = false

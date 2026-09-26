@@ -46,7 +46,9 @@ export const useConnections = () =>
 /** Turns a track into something the audio element can play. */
 export async function resolveStream(track: Track): Promise<StreamInfo> {
   if (track.source === 'local') {
-    return { url: `media://local/${encodeURIComponent(track.id)}`, kind: 'direct', gainDb: track.gainDb }
+    const ext = ((track as { path?: string }).path ?? '').split('.').pop()?.toLowerCase() ?? ''
+    const quality = ['flac', 'wav'].includes(ext) ? `${ext.toUpperCase()} · lossless` : ext ? ext.toUpperCase() : undefined
+    return { url: `media://local/${encodeURIComponent(track.id)}`, kind: 'direct', gainDb: track.gainDb, quality }
   }
   if (!isConnected(track.source)) throw new Error(`${SOURCES[track.source].name} isn't connected yet`)
   return window.api.sources.resolve(track.source, track.id).catch((err) => {

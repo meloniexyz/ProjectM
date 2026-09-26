@@ -88,6 +88,7 @@ interface ResolvedStream {
   expires: number
   /** gain (dB) to reach -14 LUFS, from YouTube's own loudness measurement */
   gainDb?: number
+  quality?: string
 }
 
 /**
@@ -540,7 +541,7 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
   /** Audio goes through our media:// proxy so we control ranges and can refresh expired URLs. */
   async resolve(id: string): Promise<StreamInfo> {
     const stream = await this.stream(id) // resolve now so errors reach the player immediately
-    return { url: `media://youtube/${encodeURIComponent(id)}`, kind: 'direct', gainDb: stream.gainDb }
+    return { url: `media://youtube/${encodeURIComponent(id)}`, kind: 'direct', gainDb: stream.gainDb, quality: stream.quality }
   }
 
   async stream(id: string, fresh = false): Promise<ResolvedStream> {
@@ -569,6 +570,7 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
           length: Number(format.content_length) || 0,
           // refresh a few minutes before YouTube's own expiry (default: 1 hour)
           expires: expireParam ? expireParam * 1000 - 5 * 60_000 : Date.now() + 60 * 60_000,
+          quality: `${format.mime_type.includes('webm') ? 'Opus' : 'AAC'} · ${Math.round((format.average_bitrate ?? format.bitrate) / 1000)} kbps`,
           gainDb:
             format.track_absolute_loudness_lkfs != null
               ? -14 - format.track_absolute_loudness_lkfs

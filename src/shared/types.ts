@@ -49,6 +49,8 @@ export interface StreamInfo {
   kind: 'direct' | 'hls'
   /** known gain (dB) to reach -14 LUFS, when the source publishes loudness info */
   gainDb?: number
+  /** what's being played, for display, e.g. "Opus · 134 kbps" */
+  quality?: string
 }
 
 /** A signed-in streaming account (Spotify, YouTube Music, SoundCloud). */

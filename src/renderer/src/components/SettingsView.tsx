@@ -87,6 +87,23 @@ export function SettingsView() {
         </Row>
       </Section>
 
+      <Section title="Audio quality">
+        <Row
+          label="Streaming quality"
+          hint="Always the best stream each service offers: YouTube Music in Opus (its highest free quality), SoundCloud in AAC 160 kbps when available, local files untouched (FLAC stays lossless). The Now Playing panel shows what's playing."
+        >
+          <span className="settings-value">Highest available</span>
+        </Row>
+        <Row
+          label="Spotify quality"
+          hint="Spotify songs play through the Spotify app, so its own setting decides. For the best sound: Spotify → Settings → Audio quality → Streaming quality → Lossless (Premium), or Very high."
+        />
+        <Row
+          label="Sound processing"
+          hint="With volume leveling off, audio isn't processed at all. With it on, songs that are turned down pass through untouched apart from the volume change; the peak limiter only engages on songs that are turned up."
+        />
+      </Section>
+
       <Section title="Display">
         <Row label="Start page" hint="What ProjectM shows when it opens.">
           <Select

@@ -22,6 +22,10 @@ const CACHE_MAX = 5000
 let ctx: AudioContext | null = null
 let normalize: GainNode
 let output: GainNode
+let direct: GainNode
+let limited: GainNode
+let limitedTrim = 1
+let limiterOn = false
 let analyser: AnalyserNode
 let buffer: Float32Array<ArrayBuffer>
 let enabled = true
@@ -61,14 +65,31 @@ export function connectAudio(audio: HTMLAudioElement) {
   const source = ctx.createMediaElementSource(audio)
 
   normalize = ctx.createGain()
-  const limiter = ctx.createDynamicsCompressor()
-  limiter.threshold.value = -1.5
-  limiter.knee.value = 0
-  limiter.ratio.value = 20
-  limiter.attack.value = 0.003
-  limiter.release.value = 0.25
   output = ctx.createGain()
-  source.connect(normalize).connect(limiter).connect(output).connect(ctx.destination)
+  source.connect(normalize)
+
+  // Two paths after the level gain: straight through (sound untouched), or through a
+  // peak limiter. The limiter is only used while a song is boosted, where peaks could clip.
+  direct = ctx.createGain()
+  normalize.connect(direct).connect(output)
+
+  const threshold = -1
+  const ratio = 20
+  const limiter = ctx.createDynamicsCompressor()
+  limiter.threshold.value = threshold
+  limiter.knee.value = 0
+  limiter.ratio.value = ratio
+  limiter.attack.value = 0.002
+  limiter.release.value = 0.2
+  limited = ctx.createGain()
+  normalize.connect(limiter).connect(limited).connect(output)
+  // Chromium's compressor adds automatic "makeup gain"; undo it so levels stay exact
+  const fullRangeDb = threshold + (0 - threshold) / ratio
+  limitedTrim = dbToGain(0.6 * fullRangeDb)
+
+  direct.gain.value = 1
+  limited.gain.value = 0
+  output.connect(ctx.destination)
 
   // K-weighting (ITU BS.1770): high-pass ~38 Hz + high shelf +4 dB above ~1.5 kHz
   const hp = ctx.createBiquadFilter()
@@ -97,8 +118,19 @@ export function resumeAudio() {
 
 function applyGain(db: number, seconds: number) {
   if (!ctx) return
+  const total = enabled ? db + targetOffsetDb : 0
   normalize.gain.cancelScheduledValues(ctx.currentTime)
-  normalize.gain.setTargetAtTime(enabled ? dbToGain(db + targetOffsetDb) : 1, ctx.currentTime, seconds)
+  normalize.gain.setTargetAtTime(dbToGain(total), ctx.currentTime, seconds)
+  useLimiter(total > 0.5)
+}
+
+/** Crossfades between the untouched path and the limited path (only needed when boosting). */
+function useLimiter(on: boolean) {
+  if (!ctx || on === limiterOn) return
+  limiterOn = on
+  const t = ctx.currentTime
+  direct.gain.setTargetAtTime(on ? 0 : 1, t, 0.02)
+  limited.gain.setTargetAtTime(on ? limitedTrim : 0, t, 0.02)
 }
 
 /** Loudness level all songs are brought to (e.g. -23 quiet, -14 normal, -11 loud). */
