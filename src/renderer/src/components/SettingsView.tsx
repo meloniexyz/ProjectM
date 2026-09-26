@@ -12,6 +12,7 @@ import { SOURCES } from '../lib/sources'
 import { useStore } from '../lib/store'
 import { toast } from '../lib/ui'
 import { SourceBadge } from './Icons'
+import { clearListenHistory } from './HistoryView'
 import { EqualizerPanel } from './Equalizer'
 import { ThemesPanel } from './ThemesPanel'
 
@@ -189,13 +190,12 @@ export function SettingsView({ tab = 'general' }: { tab?: 'general' | 'eq' | 'th
       </Section>
 
       <Section title="Privacy and storage">
-        <Row label="Play history" hint={`${plural(history, 'song')} remembered. Used for "Jump back in" and "Most played" on Home.`}>
+        <Row label="Play history" hint={`Everything on the History page, plus "Jump back in" and "Most played" on Home.`}>
           <ConfirmButton
             label="Clear history"
-            disabled={!history}
             onConfirm={() => {
               clearHistory()
-              toast('Play history cleared')
+              clearListenHistory()
             }}
           />
         </Row>

@@ -11,7 +11,7 @@ import { PlaylistArt } from './common'
 import { LikedArt } from './AccountViews'
 import { likedCountStore } from '../lib/liked'
 import { ACCOUNT_SOURCES } from '../lib/accounts'
-import { DiscIcon, HomeIcon, MusicIcon, PlusIcon, SearchIcon, SettingsIcon, SourceBadge } from './Icons'
+import { ClockIcon, DiscIcon, HomeIcon, MusicIcon, PlusIcon, SearchIcon, SettingsIcon, SourceBadge } from './Icons'
 
 export function Sidebar() {
   const nav = useNav()
@@ -39,6 +39,7 @@ export function Sidebar() {
         {item(v.kind === 'search', <SearchIcon />, 'Search', () => nav.go({ kind: 'search' }))}
         {item(v.kind === 'songs', <MusicIcon />, 'Songs', () => nav.go({ kind: 'songs' }))}
         {item(v.kind === 'albums' || v.kind === 'album', <DiscIcon />, 'Albums', () => nav.go({ kind: 'albums' }))}
+        {item(v.kind === 'history', <ClockIcon />, 'History', () => nav.go({ kind: 'history' }))}
       </div>
 
       {likedSources.length > 0 && (

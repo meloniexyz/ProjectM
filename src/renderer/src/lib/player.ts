@@ -32,13 +32,16 @@ export interface PlayerState {
   normalize: boolean
   /** what's being played right now, e.g. "Opus · 134 kbps" */
   quality: string | null
+  /** queue item whose audio is actually attached (null while switching songs) */
+  activeKey: number | null
   /** set when the song plays from a different service than its own (Spotify -> YouTube Music) */
   via: SourceId | null
 }
 
 const STORAGE_KEY = 'projectm.player'
-/** where to continue the restored song from, on its first play after launch */
+/** where to continue the restored song from, on its first play after launch (only that song) */
 let resumeAt = 0
+let resumeKey: number | null = null
 let keySeq = 1
 const wrap = (tracks: Track[]): QueueItem[] => tracks.map((track) => ({ key: keySeq++, track }))
 
@@ -57,6 +60,7 @@ function restore(): PlayerState {
     error: null,
     normalize: true,
     quality: null,
+    activeKey: null,
     via: null,
   }
   try {
@@ -68,6 +72,7 @@ function restore(): PlayerState {
       s.volume = saved.volume ?? s.volume
       s.position = Math.max(0, saved.position ?? 0)
       resumeAt = s.position > 2 ? s.position : 0
+      resumeKey = s.queue[s.index]?.key ?? null
       s.muted = !!saved.muted
       s.shuffle = !!saved.shuffle
       s.repeat = saved.repeat ?? 'off'
@@ -131,6 +136,8 @@ export function usePlayer<T>(select: (s: PlayerState) => T): T {
 }
 
 export const getPlayer = () => state
+/** For code outside React that follows playback (e.g. the listening log). */
+export const subscribePlayer = subscribe
 
 // ---------- audio engine ----------
 // Local files, YouTube Music and SoundCloud play in this one <audio> element ("audio" engine).
@@ -234,9 +241,10 @@ async function load(autoplay: boolean) {
     return
   }
   loadedKey = item.key
-  const startAt = resumeAt
+  const startAt = item.key === resumeKey ? resumeAt : 0
   resumeAt = 0
-  emit({ position: startAt, duration: item.track.duration, error: null, buffering: autoplay, via: null })
+  resumeKey = null
+  emit({ position: startAt, duration: item.track.duration, error: null, buffering: autoplay, via: null, activeKey: null })
   setMediaSession(item.track)
   if (autoplay) recordPlay(item.track)
 
@@ -266,6 +274,7 @@ async function load(autoplay: boolean) {
   }
   if (seq !== loadSeq || !(await attach(stream, seq, item.track))) return
   if (startAt) audio.currentTime = startAt
+  emit({ activeKey: item.key, position: startAt }, false)
   if (autoplay) audio.play().catch(() => {}) // real failures arrive via the 'error' event
 }
 
@@ -321,7 +330,7 @@ async function spotifyStart(track: Track, seq: number, positionSec = 0) {
     return
   }
   if (seq !== loadSeq) return
-  emit({ quality: 'Spotify app quality' }, false)
+  emit({ quality: 'Spotify app quality', activeKey: state.queue[state.index]?.key ?? null, position: positionSec }, false)
   sp.volume(spotifyVolume()).catch(() => {})
   spTrackId = track.id
   spSeenPlaying = false
@@ -384,6 +393,7 @@ async function playFallback(track: Track, seq: number) {
     return
   }
   if (seq !== loadSeq || !(await attach(stream, seq, track))) return
+  emit({ activeKey: state.queue[state.index]?.key ?? null, position: 0 }, false)
   audio.play().catch(() => {})
 }
 
@@ -430,7 +440,7 @@ audio.addEventListener('play', () => engine === 'audio' && emit({ playing: true 
 audio.addEventListener('pause', () => engine === 'audio' && emit({ playing: false }, false))
 audio.addEventListener('playing', () => emit({ buffering: false }, false))
 audio.addEventListener('waiting', () => emit({ buffering: true }, false))
-audio.addEventListener('timeupdate', () => emit({ position: audio.currentTime }, false))
+audio.addEventListener('timeupdate', () => state.activeKey !== null && emit({ position: audio.currentTime }, false))
 audio.addEventListener('durationchange', () => {
   if (Number.isFinite(audio.duration)) emit({ duration: audio.duration }, false)
 })

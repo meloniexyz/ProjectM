@@ -8,6 +8,8 @@ import { LikedPage, RemotePlaylistView } from './components/AccountViews'
 import { preloadLiked } from './lib/liked'
 import { HomeView } from './components/HomeView'
 import { NowPlaying } from './components/NowPlaying'
+import { HistoryView } from './components/HistoryView'
+import { startListenLog } from './lib/listenLog'
 import { EditPlaylistHost } from './components/EditPlaylist'
 import { AlbumsView, AlbumView, PlaylistView, SearchView, SongsView, SourceView } from './components/Views'
 import { initLibrary } from './lib/library'
@@ -69,6 +71,7 @@ export function App() {
   useEffect(() => {
     initLibrary()
     initAccounts().then(preloadLiked)
+    startListenLog()
   }, [])
 
   // remember the page for "open where I left off"
@@ -154,6 +157,8 @@ function Page({ view }: { view: View }) {
       return <SourceView source={view.source} />
     case 'home':
       return <HomeView />
+    case 'history':
+      return <HistoryView tab={view.tab} />
     case 'liked':
       return <LikedPage source={view.source} />
     case 'settings':

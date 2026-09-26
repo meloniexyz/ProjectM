@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Lyrics, Track } from '../../../shared/types'
+import type { Lyrics, SongInfo, Track } from '../../../shared/types'
 import { cls } from '../lib/format'
 import { albumKey } from '../lib/library'
 import { useNav } from '../lib/nav'
@@ -66,6 +66,7 @@ export function NowPlaying({ onClose, onOpenQueue }: { onClose: () => void; onOp
           </div>
 
           {showLyrics && <LyricsCard track={track} />}
+          <SongInfoCard track={track} />
 
           {nextItem && (
             <div className="np-card">
@@ -268,3 +269,110 @@ function LyricsCard({ track }: { track: Track }) {
     </div>
   )
 }
+
+// ---------- song info (MusicBrainz) ----------
+
+const infoCache = new Map<string, Promise<SongInfo | null>>()
+function fetchInfo(t: Track) {
+  let hit = infoCache.get(t.uid)
+  if (!hit) {
+    hit = window.api.songInfo({ title: t.title, artist: t.artist, duration: t.duration }).catch(() => null)
+    infoCache.set(t.uid, hit)
+  }
+  return hit
+}
+
+/** "2013-05-17" -> "17 May 2013", "2013-05" -> "May 2013", "2013" -> "2013" */
+function fmtDate(d?: string) {
+  if (!d) return ''
+  const [y, m, day] = d.split('-').map(Number)
+  if (!m) return String(y)
+  const date = new Date(y, m - 1, day || 1)
+  return date.toLocaleDateString(undefined, day ? { day: 'numeric', month: 'long', year: 'numeric' } : { month: 'long', year: 'numeric' })
+}
+
+function SongInfoCard({ track }: { track: Track }) {
+  const [state, setState] = useState<{ uid: string; info: SongInfo | null; loading: boolean }>({ uid: track.uid, info: null, loading: true })
+  const [all, setAll] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    setState({ uid: track.uid, info: null, loading: true })
+    setAll(false)
+    // local files and SoundCloud uploads are often unreleased: still worth a try
+    fetchInfo(track).then((info) => live && setState({ uid: track.uid, info, loading: false }))
+    return () => {
+      live = false
+    }
+  }, [track])
+
+  const { info, loading } = state
+  if (loading) {
+    return (
+      <div className="np-card">
+        <div className="np-card-head">
+          <span>About this song</span>
+        </div>
+        <div className="lyrics-empty">Looking it up…</div>
+      </div>
+    )
+  }
+  if (!info) return null
+
+  const credits = all ? info.credits : info.credits.slice(0, 5)
+  return (
+    <div className="np-card song-info">
+      <div className="np-card-head">
+        <span>About this song</span>
+        <button className="link-btn" onClick={() => window.open(info.url)}>
+          MusicBrainz ↗
+        </button>
+      </div>
+      {info.released && (
+        <InfoRow label="Released">
+          {fmtDate(info.released)}
+          {info.album && (
+            <>
+              {' · '}
+              <i>{info.album}</i>
+              {info.albumType && info.albumType !== 'Album' ? ` (${info.albumType.toLowerCase()})` : ''}
+            </>
+          )}
+        </InfoRow>
+      )}
+      {info.recordedAt.map((r, i) => (
+        <InfoRow key={i} label={r.what}>
+          {r.place}
+          {r.area ? `, ${r.area}` : ''}
+          {r.date && (
+            <>
+              {' · '}
+              {fmtDate(r.date)}
+              {r.until ? ` – ${fmtDate(r.until)}` : ''}
+            </>
+          )}
+        </InfoRow>
+      ))}
+      {credits.map((c) => (
+        <InfoRow key={c.role} label={c.role}>
+          {c.names.join(', ')}
+        </InfoRow>
+      ))}
+      {info.credits.length > 5 && (
+        <button className="link-btn" onClick={() => setAll((a) => !a)}>
+          {all ? 'Fewer credits' : `All credits (${info.credits.length})`}
+        </button>
+      )}
+      {!info.recordedAt.length && !info.credits.length && (
+        <div className="lyrics-hint">No studio or credit details on MusicBrainz for this one yet.</div>
+      )}
+    </div>
+  )
+}
+
+const InfoRow = ({ label, children }: { label: string; children: ReactNode }) => (
+  <div className="info-row">
+    <span className="info-label">{label}</span>
+    <span className="info-value">{children}</span>
+  </div>
+)

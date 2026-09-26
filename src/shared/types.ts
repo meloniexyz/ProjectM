@@ -152,3 +152,35 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'projectm',
   accent: null,
 }
+
+/** One play of a song: when, which parts were heard, and for how long. */
+export interface ListenEntry {
+  id: string
+  track: Track
+  /** set when it played from another service (Spotify song played from YouTube) */
+  via?: SourceId | null
+  /** wall-clock start and last update (ms) */
+  startedAt: number
+  endedAt: number
+  /** parts of the song heard, as [from, to] positions in seconds */
+  segments: [number, number][]
+  /** seconds actually heard */
+  listened: number
+  /** song length (s) */
+  duration: number
+}
+
+/** Details about a recording (from MusicBrainz). */
+export interface SongInfo {
+  title: string
+  artist: string
+  /** first release date, e.g. "2013-05-17" */
+  released?: string
+  album?: string
+  albumType?: string
+  /** where/when it was recorded, mixed etc. */
+  recordedAt: { what: string; place: string; area?: string; date?: string; until?: string }[]
+  credits: { role: string; names: string[] }[]
+  isrc?: string
+  url: string
+}

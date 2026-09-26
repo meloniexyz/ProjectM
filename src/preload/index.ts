@@ -12,6 +12,8 @@ import type {
   StreamInfo,
   Settings,
   Track,
+  ListenEntry,
+  SongInfo,
 } from '../shared/types'
 
 const api = {
@@ -71,6 +73,16 @@ const api = {
     seek: (ms: number): Promise<void> => ipcRenderer.invoke('spotify:seek', ms),
     volume: (percent: number): Promise<void> => ipcRenderer.invoke('spotify:volume', percent),
     playback: (): Promise<SpotifyPlayback | null> => ipcRenderer.invoke('spotify:playback'),
+  },
+  songInfo: (t: { title: string; artist: string; duration: number }): Promise<SongInfo | null> =>
+    ipcRenderer.invoke('songinfo:get', t),
+  history: {
+    upsert: (e: ListenEntry): Promise<void> => ipcRenderer.invoke('history:upsert', e),
+    list: (offset: number, limit: number): Promise<{ entries: ListenEntry[]; total: number }> =>
+      ipcRenderer.invoke('history:list', offset, limit),
+    all: (): Promise<ListenEntry[]> => ipcRenderer.invoke('history:all'),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke('history:remove', id),
+    clear: (): Promise<void> => ipcRenderer.invoke('history:clear'),
   },
   settings: {
     get: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),

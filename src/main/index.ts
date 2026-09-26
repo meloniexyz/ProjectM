@@ -8,9 +8,11 @@ import { SoundCloud } from './sources/soundcloud'
 import { Spotify } from './sources/spotify'
 import type { AccountSource, StreamingSource } from './sources/types'
 import { getLyrics } from './lyrics'
+import { ListenHistory } from './history'
+import { getSongInfo } from './songinfo'
 import { Secrets } from './secrets'
 import { YouTubeMusic } from './sources/youtube'
-import { DEFAULT_SETTINGS, type Playlist, type ScanProgress, type Settings, type SourceId } from '../shared/types'
+import { DEFAULT_SETTINGS, type ListenEntry, type Playlist, type ScanProgress, type Settings, type SourceId } from '../shared/types'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } },
@@ -39,6 +41,7 @@ const library = new Library(dataDir)
 const playlists = new JsonFile<Playlist[]>(join(dataDir, 'playlists.json'), [])
 const settings = new JsonFile<Settings>(join(dataDir, 'settings.json'), DEFAULT_SETTINGS)
 const secrets = new Secrets(join(dataDir, 'accounts.json'))
+const listenHistory = new ListenHistory(join(dataDir, 'history.json'))
 const youtube = new YouTubeMusic(join(dataDir, 'cache'), secrets)
 const spotify = new Spotify(join(dataDir, 'spotify.json'))
 const soundcloud = new SoundCloud(secrets)
@@ -212,6 +215,15 @@ function applyOpenAtLogin(on: boolean) {
   app.setLoginItemSettings({ openAtLogin: on, path: process.execPath, args })
 }
 
+ipcMain.handle('songinfo:get', (_, t: { title: string; artist: string; duration: number }) =>
+  getSongInfo(t.title, t.artist, t.duration),
+)
+ipcMain.handle('history:upsert', (_, e: ListenEntry) => listenHistory.upsert(e))
+ipcMain.handle('history:list', (_, offset: number, limit: number) => listenHistory.list(offset, limit))
+ipcMain.handle('history:all', () => listenHistory.all())
+ipcMain.handle('history:remove', (_, id: string) => listenHistory.remove(id))
+ipcMain.handle('history:clear', () => listenHistory.clear())
+app.on('before-quit', () => void listenHistory.flush())
 ipcMain.handle('playlists:get', () => playlists.get())
 ipcMain.handle('playlists:save', (_, list: Playlist[]) => playlists.set(list))
 ipcMain.handle('playlists:pickCover', async () => {
@@ -227,7 +239,7 @@ ipcMain.handle('playlists:pickCover', async () => {
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark'
   Menu.setApplicationMenu(null)
-  await Promise.all([library.load(), playlists.load(), spotify.load(), secrets.load(), windowState.load(), settings.load()])
+  await Promise.all([library.load(), playlists.load(), spotify.load(), secrets.load(), windowState.load(), settings.load(), listenHistory.load()])
   protocol.handle('media', (req) => handleMedia(req, library, youtube))
   createWindow()
   // Pick up files added/changed while the app was closed.
