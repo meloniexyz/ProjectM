@@ -25,11 +25,24 @@ let normalize: GainNode
 let eqIn: GainNode
 let eqFilters: BiquadFilterNode[] = []
 let outMeter: AnalyserNode | null = null
+let outK: AnalyserNode | null = null
+
+/** Diagnostics: K-weighted mean square of the output right now. */
+export function outputMeanSquare() {
+  if (!outK) return 0
+  const b = new Float32Array(outK.fftSize)
+  outK.getFloatTimeDomainData(b)
+  return b.reduce((a, v) => a + v * v, 0) / b.length
+}
 let output: GainNode
 let direct: GainNode
 let limited: GainNode
 let limitedTrim = 1
 let limiterOn = false
+/** leveling gain currently applied (dB) */
+let levelDb = 0
+/** how far the EQ can push any frequency above the original, after loudness compensation (dB) */
+let eqPeakRiseDb = 0
 let analyser: AnalyserNode
 let buffer: Float32Array<ArrayBuffer>
 let enabled = true
@@ -101,6 +114,20 @@ export function connectAudio(audio: HTMLAudioElement) {
   outMeter.fftSize = 2048
   limited.connect(outMeter)
   direct.connect(outMeter)
+  // diagnostics only: K-weighted copy of the output, to check perceived loudness
+  const khp = ctx.createBiquadFilter()
+  khp.type = 'highpass'
+  khp.frequency.value = 38
+  khp.Q.value = 0.5
+  const kshelf = ctx.createBiquadFilter()
+  kshelf.type = 'highshelf'
+  kshelf.frequency.value = 1500
+  kshelf.gain.value = 4
+  outK = ctx.createAnalyser()
+  outK.fftSize = 8192
+  limited.connect(khp)
+  direct.connect(khp)
+  khp.connect(kshelf).connect(outK)
 
   // K-weighting (ITU BS.1770): high-pass ~38 Hz + high shelf +4 dB above ~1.5 kHz
   const hp = ctx.createBiquadFilter()
@@ -117,63 +144,223 @@ export function connectAudio(audio: HTMLAudioElement) {
   source.connect(hp).connect(shelf).connect(analyser)
 }
 
-/** The player's volume (0..1 already curved), applied after normalization. */
-/**
- * Applies an equalizer curve. Bands are rebuilt only when their layout changes; gain changes
- * glide so dragging a band doesn't click. Boosts are balanced by lowering the input just
- * enough that the loudest frequency stays at 0 dB (no clipping).
- */
-export function setEq(eq: { enabled: boolean; bands: { freq: number; type: BiquadFilterType; q: number; gain: number }[] }) {
-  if (!ctx) return
-  const layout = eq.bands.map((b) => `${b.type}@${b.freq}`).join(',')
-  const current = eqFilters.map((f) => `${f.type}@${f.frequency.value}`).join(',')
-  if (layout !== current) {
-    eqIn.disconnect()
-    for (const f of eqFilters) f.disconnect()
-    eqFilters = eq.bands.map((b) => {
-      const f = ctx!.createBiquadFilter()
-      f.type = b.type
-      f.frequency.value = b.freq
-      f.Q.value = b.q
-      f.gain.value = 0
-      return f
-    })
-    let node: AudioNode = eqIn
-    for (const f of eqFilters) node = node.connect(f)
-    node.connect(normalize)
-  }
-  const t = ctx.currentTime
-  eq.bands.forEach((b, i) => eqFilters[i].gain.setTargetAtTime(eq.enabled ? b.gain : 0, t, 0.03))
-  const peak = eq.enabled ? eqPeakDb(eq.bands.map((b) => (eq.enabled ? b.gain : 0))) : 0
-  eqIn.gain.setTargetAtTime(dbToGain(-Math.max(0, peak)), t, 0.03)
+// ---------- equalizer ----------
+//
+// The 3/5/7 dots you drag define a smooth curve (monotone cubic interpolation on a log
+// frequency axis: it passes through every dot and never overshoots between them). A bank of
+// ~24 filters, half an octave apart, is then solved to follow that curve, so neighbouring dots
+// connect smoothly instead of forming separate bumps.
+
+const BANK: { type: BiquadFilterType; freq: number; q: number; solveAt: number }[] = [
+  { type: 'lowshelf', freq: 32, q: 0.7, solveAt: 25 },
+  // half-octave steps, tightened to quarter-octave above 10 kHz where digital filters get
+  // squeezed (frequency warping near the top of the audio range), plus one below 40 Hz
+  ...[28, ...Array.from({ length: 17 }, (_, k) => 40 * Math.pow(2, k / 2)), 12177, 14482, 17222, 20480].map((freq) => ({
+    type: 'peaking' as BiquadFilterType,
+    freq,
+    q: 1.4,
+    solveAt: freq,
+  })),
+  { type: 'highshelf', freq: 18000, q: 0.7, solveAt: 19500 },
+]
+const SOLVE_FREQS = new Float32Array(BANK.map((b) => b.solveAt))
+let probes: BiquadFilterNode[] = []
+
+/** Builds the filter bank once and inserts it between the headroom gain and the leveling gain. */
+function ensureBank() {
+  if (!ctx || eqFilters.length) return
+  eqIn.disconnect()
+  eqFilters = BANK.map((b) => {
+    const f = ctx!.createBiquadFilter()
+    f.type = b.type
+    f.frequency.value = b.freq
+    f.Q.value = b.q
+    f.gain.value = 0
+    return f
+  })
+  let node: AudioNode = eqIn
+  for (const f of eqFilters) node = node.connect(f)
+  node.connect(normalize)
+  // unconnected copies, only used to calculate responses
+  probes = BANK.map((b) => {
+    const p = ctx!.createBiquadFilter()
+    p.type = b.type
+    p.frequency.value = b.freq
+    p.Q.value = b.q
+    return p
+  })
 }
 
-const RESPONSE_FREQS = new Float32Array(Array.from({ length: 160 }, (_, i) => 20 * Math.pow(1000, i / 159))) // 20 Hz..20 kHz
+type Dot = { freq: number; gain: number }
 
-/** Combined response of the EQ bands (dB) at the given frequencies, using the target gains. */
-export function eqResponse(freqs: Float32Array<ArrayBuffer>, gains: number[]) {
+/** Smooth curve through the dots: monotone cubic (Fritsch-Carlson) in log-frequency, flat outside. */
+export function curveThrough(dots: Dot[], freq: number) {
+  const n = dots.length
+  if (!n) return 0
+  const xs = dots.map((d) => Math.log(d.freq))
+  const ys = dots.map((d) => d.gain)
+  const x = Math.log(freq)
+  if (x <= xs[0]) return ys[0]
+  if (x >= xs[n - 1]) return ys[n - 1]
+  const h = xs.slice(1).map((v, i) => v - xs[i])
+  const delta = h.map((hi, i) => (ys[i + 1] - ys[i]) / hi)
+  const m = ys.map((_, i) => (i === 0 ? delta[0] : i === n - 1 ? delta[n - 2] : (delta[i - 1] + delta[i]) / 2))
+  for (let i = 0; i < n - 1; i++) {
+    if (delta[i] === 0) {
+      m[i] = 0
+      m[i + 1] = 0
+    } else {
+      const a = m[i] / delta[i]
+      const b = m[i + 1] / delta[i]
+      const s = a * a + b * b
+      if (s > 9) {
+        const t = 3 / Math.sqrt(s)
+        m[i] = t * a * delta[i]
+        m[i + 1] = t * b * delta[i]
+      }
+    }
+  }
+  let i = 0
+  while (x > xs[i + 1]) i++
+  const t = (x - xs[i]) / h[i]
+  const t2 = t * t
+  const t3 = t2 * t
+  return (
+    (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * h[i] * m[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h[i] * m[i + 1]
+  )
+}
+
+/** Combined response (dB) of the filter bank at the given frequencies, for the given filter gains. */
+function bankResponse(freqs: Float32Array<ArrayBuffer>, gains: number[]) {
   const out = new Float32Array(freqs.length)
-  if (!ctx || eqFilters.length !== gains.length) return out
+  if (!probes.length) return out
   const mag = new Float32Array(freqs.length)
   const phase = new Float32Array(freqs.length)
-  eqFilters.forEach((f, i) => {
-    // measure each band at its target gain (the live value may still be gliding)
-    const probe = ctx!.createBiquadFilter()
-    probe.type = f.type
-    probe.frequency.value = f.frequency.value
-    probe.Q.value = f.Q.value
-    probe.gain.value = gains[i]
-    probe.getFrequencyResponse(freqs, mag, phase)
+  probes.forEach((p, i) => {
+    if (!gains[i]) return
+    p.gain.value = gains[i]
+    p.getFrequencyResponse(freqs, mag, phase)
     for (let k = 0; k < freqs.length; k++) out[k] += 20 * Math.log10(mag[k] || 1e-6)
   })
   return out
 }
 
-function eqPeakDb(gains: number[]) {
-  const r = eqResponse(RESPONSE_FREQS, gains)
-  return r.reduce((m, v) => Math.max(m, v), -Infinity)
+let solveCache: { key: string; gains: number[] } | null = null
+
+// dense check points across the audible range (log-spaced), where the fitted response must follow the curve
+const FIT_FREQS = new Float32Array(Array.from({ length: 200 }, (_, i) => 20 * Math.pow(1000, i / 199)))
+let fitBasis: Float32Array[] | null = null // per filter: dB response per dB of gain, at FIT_FREQS
+
+/** Each filter's response shape per dB of gain (peaking/shelf responses scale ~linearly in dB). */
+function basisAt(freqs: Float32Array<ArrayBuffer>) {
+  const mag = new Float32Array(freqs.length)
+  const phase = new Float32Array(freqs.length)
+  return probes.map((p) => {
+    p.gain.value = 6
+    p.getFrequencyResponse(freqs, mag, phase)
+    return Float32Array.from(mag, (m) => (20 * Math.log10(m || 1e-6)) / 6)
+  })
 }
 
+/** Solves the small square system M x = v (Gaussian elimination with partial pivoting). */
+function solveLinear(M: number[][], v: number[]) {
+  const n = v.length
+  const A = M.map((row, i) => [...row, v[i]])
+  for (let c = 0; c < n; c++) {
+    let p = c
+    for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r
+    ;[A[c], A[p]] = [A[p], A[c]]
+    const d = A[c][c] || 1e-12
+    for (let r = c + 1; r < n; r++) {
+      const k = A[r][c] / d
+      for (let j = c; j <= n; j++) A[r][j] -= k * A[c][j]
+    }
+  }
+  const x = new Array(n).fill(0)
+  for (let r = n - 1; r >= 0; r--) {
+    let sum = A[r][n]
+    for (let j = r + 1; j < n; j++) sum -= A[r][j] * x[j]
+    x[r] = sum / (A[r][r] || 1e-12)
+  }
+  return x
+}
+
+/**
+ * Filter gains whose combined response follows the smooth curve through the dots over the
+ * whole range (weighted least squares; the dots themselves weigh most), then refined against
+ * the exact filter responses. This is what keeps the curve smooth, without ripples or sags.
+ */
+function solveBank(dots: Dot[]) {
+  ensureBank()
+  const key = dots.map((d) => `${d.freq}:${d.gain}`).join(',')
+  if (solveCache?.key === key) return solveCache.gains
+  const n = BANK.length
+  if (dots.every((d) => d.gain === 0)) {
+    solveCache = { key, gains: new Array(n).fill(0) }
+    return solveCache.gains
+  }
+
+  fitBasis ??= basisAt(FIT_FREQS)
+  const dotFreqs = new Float32Array(dots.map((d) => d.freq))
+  const dotBasis = basisAt(dotFreqs)
+  const freqs = new Float32Array([...FIT_FREQS, ...dotFreqs])
+  const basis = fitBasis.map((col, i) => Float32Array.from([...col, ...dotBasis[i]]))
+  const weights = [...new Array(FIT_FREQS.length).fill(1), ...new Array(dots.length).fill(40)]
+  const target = Array.from(freqs, (fq) => curveThrough(dots, fq))
+
+  // normal equations  (Bᵀ W B + λI) g = Bᵀ W t
+  const lambda = 0.005
+  const M = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) => {
+      let sum = i === j ? lambda : 0
+      for (let k = 0; k < freqs.length; k++) sum += weights[k] * basis[i][k] * basis[j][k]
+      return sum
+    }),
+  )
+  const project = (err: number[]) =>
+    Array.from({ length: n }, (_, i) => {
+      let sum = 0
+      for (let k = 0; k < freqs.length; k++) sum += weights[k] * basis[i][k] * err[k]
+      return sum
+    })
+
+  let gains = solveLinear(M, project(target))
+  // refine: filters aren't perfectly linear in dB, so correct against their exact response
+  for (let pass = 0; pass < 10; pass++) {
+    const r = bankResponse(freqs, gains)
+    const err = target.map((t, k) => t - r[k])
+    if (Math.max(...err.map(Math.abs)) < 0.03) break
+    const delta = solveLinear(M, project(err))
+    gains = gains.map((g, i) => Math.max(-30, Math.min(30, g + delta[i])))
+  }
+  solveCache = { key, gains }
+  return gains
+}
+
+/** What the EQ does (dB) at the given frequencies for these dots: exactly the curve you hear. */
+export function eqResponse(freqs: Float32Array<ArrayBuffer>, dots: Dot[]) {
+  if (!ctx) return new Float32Array(freqs.length)
+  return bankResponse(freqs, solveBank(dots))
+}
+
+/** Applies the equalizer. Gains glide so dragging doesn't click. */
+export function setEq(eq: { enabled: boolean; bands: Dot[] }) {
+  if (!ctx) return
+  ensureBank()
+  const gains = eq.enabled ? solveBank(eq.bands) : BANK.map(() => 0)
+  const t = ctx.currentTime
+  eqFilters.forEach((f, i) => f.gain.setTargetAtTime(gains[i], t, 0.03))
+  // No overall level change: boosting the bass only adds bass, the rest stays exactly as it
+  // was. If that could push peaks past full scale, the limiter is switched into the path.
+  const response = bankResponse(RESPONSE_FREQS, gains)
+  eqPeakRiseDb = response.reduce((m, v) => Math.max(m, v), -Infinity)
+  eqIn.gain.setTargetAtTime(1, t, 0.03)
+  updateLimiter()
+}
+
+const RESPONSE_FREQS = new Float32Array(Array.from({ length: 160 }, (_, i) => 20 * Math.pow(1000, i / 159))) // 20 Hz..20 kHz
+
+/** The player's volume (0..1 already curved), applied after normalization. */
 export function setOutputVolume(level: number) {
   if (!ctx) return
   output.gain.setTargetAtTime(level, ctx.currentTime, 0.03)
@@ -188,7 +375,13 @@ function applyGain(db: number, seconds: number) {
   const total = enabled ? db + targetOffsetDb : 0
   normalize.gain.cancelScheduledValues(ctx.currentTime)
   normalize.gain.setTargetAtTime(dbToGain(total), ctx.currentTime, seconds)
-  useLimiter(total > 0.5)
+  levelDb = total
+  updateLimiter()
+}
+
+/** The limiter is only in the path when leveling or the EQ can push peaks above the original. */
+function updateLimiter() {
+  useLimiter(levelDb + Math.max(0, eqPeakRiseDb) > 0.5)
 }
 
 /** Crossfades between the untouched path and the limited path (only needed when boosting). */
@@ -309,6 +502,6 @@ export function loudnessDebug() {
       outMeter.getFloatTimeDomainData(b)
       return b.reduce((m, v) => Math.max(m, Math.abs(v)), 0)
     })(),
-    eq: { headroomDb: eqIn ? 20 * Math.log10(eqIn.gain.value) : 0, bands: eqFilters.map((f) => `${f.type}@${f.frequency.value}:${f.gain.value.toFixed(1)}`) },
+    eq: { limiter: limiterOn, peakRiseDb: eqPeakRiseDb, headroomDb: eqIn ? 20 * Math.log10(eqIn.gain.value) : 0, bands: eqFilters.map((f) => `${f.type}@${f.frequency.value}:${f.gain.value.toFixed(1)}`) },
   }
 }

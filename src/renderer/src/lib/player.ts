@@ -212,7 +212,7 @@ setTargetLufs(LOUDNESS_LUFS[getSettings().loudnessLevel])
 function applyEq() {
   const { eq } = getSettings()
   const layout = BAND_LAYOUTS[eq.bands]
-  setEq({ enabled: eq.enabled, bands: layout.map((b, i) => ({ ...b, gain: eq.gains[i] ?? 0 })) })
+  setEq({ enabled: eq.enabled, bands: layout.map((b, i) => ({ freq: b.freq, gain: eq.gains[i] ?? 0 })) })
 }
 applyEq()
 

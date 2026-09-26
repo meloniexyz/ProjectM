@@ -172,7 +172,8 @@ export function EqualizerPanel() {
       </div>
       <p className="hint eq-tip">
         Drag the dots up or down. Double-click a dot to reset it; with a dot selected, use the arrow keys for fine steps.
-        When bands are boosted, ProjectM lowers the overall level just enough to avoid distortion.
+        Boosting a band only adds to that band; everything else stays as it was. A limiter stops boosted peaks
+        from distorting.
       </p>
     </div>
   )
@@ -186,7 +187,7 @@ function EqGraph(props: { gains: number[]; bands: EqBands; enabled: boolean; onC
 
   // the real combined response of the filters, so the drawn curve is what you hear
   const path = useMemo(() => {
-    const r = eqResponse(CURVE_FREQS, gains)
+    const r = eqResponse(CURVE_FREQS, layout.map((b, i) => ({ freq: b.freq, gain: gains[i] ?? 0 })))
     return Array.from(CURVE_FREQS, (f, i) => `${i ? 'L' : 'M'}${x(f).toFixed(1)},${y(Math.max(-EQ_MAX_DB, Math.min(EQ_MAX_DB, r[i]))).toFixed(1)}`).join(' ')
   }, [gains, bands])
 

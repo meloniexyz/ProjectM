@@ -10,23 +10,23 @@ export interface Band {
 export const BAND_LAYOUTS: Record<EqBands, Band[]> = {
   3: [
     { freq: 100, type: 'lowshelf', q: 0.7 },
-    { freq: 1000, type: 'peaking', q: 0.7 },
+    { freq: 1000, type: 'peaking', q: 0.6 },
     { freq: 10000, type: 'highshelf', q: 0.7 },
   ],
   5: [
     { freq: 60, type: 'lowshelf', q: 0.7 },
-    { freq: 230, type: 'peaking', q: 0.9 },
-    { freq: 910, type: 'peaking', q: 0.9 },
-    { freq: 3600, type: 'peaking', q: 0.9 },
+    { freq: 230, type: 'peaking', q: 0.75 },
+    { freq: 910, type: 'peaking', q: 0.75 },
+    { freq: 3600, type: 'peaking', q: 0.75 },
     { freq: 14000, type: 'highshelf', q: 0.7 },
   ],
   7: [
     { freq: 60, type: 'lowshelf', q: 0.7 },
-    { freq: 150, type: 'peaking', q: 1.2 },
-    { freq: 400, type: 'peaking', q: 1.2 },
-    { freq: 1000, type: 'peaking', q: 1.2 },
-    { freq: 2400, type: 'peaking', q: 1.2 },
-    { freq: 6000, type: 'peaking', q: 1.2 },
+    { freq: 150, type: 'peaking', q: 0.9 },
+    { freq: 400, type: 'peaking', q: 0.9 },
+    { freq: 1000, type: 'peaking', q: 0.9 },
+    { freq: 2400, type: 'peaking', q: 0.9 },
+    { freq: 6000, type: 'peaking', q: 0.9 },
     { freq: 15000, type: 'highshelf', q: 0.7 },
   ],
 }

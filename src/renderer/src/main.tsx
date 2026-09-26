@@ -2,10 +2,18 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import './styles.css'
 import * as player from './lib/player'
-import { loudnessDebug } from './lib/loudness'
+import { curveThrough, eqResponse, loudnessDebug, outputMeanSquare } from './lib/loudness'
+import { getSettings, updateSettings } from './lib/settings'
 
 // small hook for troubleshooting from DevTools (F12)
-;(window as unknown as Record<string, unknown>).projectm = { player, loudnessDebug }
+;(window as unknown as Record<string, unknown>).projectm = {
+  player,
+  loudnessDebug,
+  outputMeanSquare,
+  eqResponse,
+  curveThrough,
+  settings: { get: getSettings, update: updateSettings },
+}
 
 import { initSettings } from './lib/settings'
 
