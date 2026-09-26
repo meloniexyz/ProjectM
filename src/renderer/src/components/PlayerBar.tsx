@@ -29,6 +29,7 @@ import {
   VolumeIcon,
 } from './Icons'
 import { SOURCES } from '../lib/sources'
+import { useSettings } from '../lib/settings'
 
 type Panel = 'queue' | 'nowPlaying'
 
@@ -45,6 +46,7 @@ export function PlayerBar({ panel, onTogglePanel }: { panel: Panel | null; onTog
   const repeat = usePlayer((s) => s.repeat)
   const via = usePlayer((s) => s.via)
   const normalize = usePlayer((s) => s.normalize)
+  const eqOn = useSettings().eq.enabled
   // while dragging the seek bar, show where you'd land without actually seeking yet
   const [preview, setPreview] = useState<number | null>(null)
   const shownPos = preview ?? position
@@ -136,6 +138,13 @@ export function PlayerBar({ panel, onTogglePanel }: { panel: Panel | null; onTog
       </div>
 
       <div className="extras">
+        <button
+          className={cls('icon-btn eq-btn', eqOn && 'on')}
+          title={eqOn ? 'Equalizer: on' : 'Equalizer: off'}
+          onClick={() => nav.go({ kind: 'settings', tab: 'eq' })}
+        >
+          EQ
+        </button>
         <button
           className={cls('icon-btn', normalize && 'on')}
           title={normalize ? 'Volume leveling: on (all songs at the same loudness)' : 'Volume leveling: off'}

@@ -2,7 +2,8 @@ import { useSyncExternalStore } from 'react'
 import type Hls from 'hls.js'
 import type { SourceId, StreamInfo, Track } from '../../../shared/types'
 import { recordPlay } from './history'
-import { connectAudio, resumeAudio, setMediaElement, setNormalizeEnabled, setOutputVolume, setTargetLufs, startSong } from './loudness'
+import { connectAudio, resumeAudio, setEq, setMediaElement, setNormalizeEnabled, setOutputVolume, setTargetLufs, startSong } from './loudness'
+import { BAND_LAYOUTS } from './eq'
 import { getSettings, LOUDNESS_LUFS, settingsStore } from './settings'
 import { shuffled } from './format'
 import { cleanError, resolveStream } from './sources'
@@ -203,9 +204,17 @@ settingsStore.subscribe(() => {
   if (s === lastSettings) return
   if (s.loudnessLevel !== lastSettings.loudnessLevel) setTargetLufs(LOUDNESS_LUFS[s.loudnessLevel])
   if (s.spotifyLevelDb !== lastSettings.spotifyLevelDb) applyVolume()
+  if (s.eq !== lastSettings.eq) applyEq()
   lastSettings = s
 })
 setTargetLufs(LOUDNESS_LUFS[getSettings().loudnessLevel])
+
+function applyEq() {
+  const { eq } = getSettings()
+  const layout = BAND_LAYOUTS[eq.bands]
+  setEq({ enabled: eq.enabled, bands: layout.map((b, i) => ({ ...b, gain: eq.gains[i] ?? 0 })) })
+}
+applyEq()
 
 function stopAudio() {
   detachHls()

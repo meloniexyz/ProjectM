@@ -154,7 +154,7 @@ function Page({ view }: { view: View }) {
     case 'home':
       return <HomeView />
     case 'settings':
-      return <SettingsView />
+      return <SettingsView tab={view.tab} />
     case 'remotePlaylist':
       return <RemotePlaylistView source={view.source} id={view.id} name={view.name} />
   }

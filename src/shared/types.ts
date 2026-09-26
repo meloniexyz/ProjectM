@@ -96,6 +96,19 @@ export interface SoundCloudProfile {
   city?: string
 }
 
+export type EqBands = 3 | 5 | 7
+
+export interface EqSettings {
+  enabled: boolean
+  bands: EqBands
+  /** dB per band for the current band count */
+  gains: number[]
+  /** name of the preset the gains came from, or 'Custom' once edited */
+  preset: string
+  /** user presets, stored as gains at the 7-band frequencies so they work in every mode */
+  custom: { name: string; curve: number[] }[]
+}
+
 /** App settings (stored in settings.json in the app's data folder). */
 export interface Settings {
   /** page shown when ProjectM opens */
@@ -109,6 +122,7 @@ export interface Settings {
   showLyrics: boolean
   rescanOnStartup: boolean
   openAtLogin: boolean
+  eq: EqSettings
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -119,4 +133,5 @@ export const DEFAULT_SETTINGS: Settings = {
   showLyrics: true,
   rescanOnStartup: true,
   openAtLogin: false,
+  eq: { enabled: false, bands: 7, gains: [0, 0, 0, 0, 0, 0, 0], preset: 'Flat', custom: [] },
 }

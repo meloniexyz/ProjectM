@@ -13,10 +13,19 @@ export async function initSettings() {
   settingsStore.set({ settings: await window.api.settings.get(), ready: true })
 }
 
-export async function updateSettings(patch: Partial<Settings>) {
-  // update the UI right away, then persist
+let pending: Partial<Settings> = {}
+let saveTimer = 0
+
+/** Updates the UI immediately; writes to disk shortly after (batched, for things like dragging). */
+export function updateSettings(patch: Partial<Settings>) {
   settingsStore.set((s) => ({ settings: { ...s.settings, ...patch } }))
-  settingsStore.set({ settings: await window.api.settings.set(patch) })
+  pending = { ...pending, ...patch }
+  clearTimeout(saveTimer)
+  saveTimer = window.setTimeout(() => {
+    const toSave = pending
+    pending = {}
+    window.api.settings.set(toSave).catch(() => {})
+  }, 300)
 }
 
 /** Loudness targets, same idea as Spotify's Quiet / Normal / Loud. */

@@ -12,9 +12,11 @@ import { SOURCES } from '../lib/sources'
 import { useStore } from '../lib/store'
 import { toast } from '../lib/ui'
 import { SourceBadge } from './Icons'
+import { EqualizerPanel } from './Equalizer'
 
 /** Spotify-style settings: sections of rows, each with a label, a short explanation and a control. */
-export function SettingsView() {
+export function SettingsView({ tab = 'general' }: { tab?: 'general' | 'eq' }) {
+  const nav = useNav()
   const s = useSettings()
   const set = (patch: Partial<Settings>) => updateSettings(patch)
   const normalize = usePlayer((p) => p.normalize)
@@ -30,6 +32,18 @@ export function SettingsView() {
   return (
     <div className="settings">
       <h1>Settings</h1>
+      <div className="chips tabs settings-tabs">
+        <button className={cls('chip', tab === 'general' && 'on')} onClick={() => nav.go({ kind: 'settings', tab: 'general' })}>
+          General
+        </button>
+        <button className={cls('chip', tab === 'eq' && 'on')} onClick={() => nav.go({ kind: 'settings', tab: 'eq' })}>
+          Equalizer
+        </button>
+      </div>
+      {tab === 'eq' ? (
+        <EqualizerPanel />
+      ) : (
+      <>
 
       <Section title="Playback">
         <Row label="Volume leveling" hint="Play every song at the same loudness, whichever service it comes from.">
@@ -206,6 +220,8 @@ export function SettingsView() {
           </div>
         </Row>
       </Section>
+      </>
+      )}
     </div>
   )
 }

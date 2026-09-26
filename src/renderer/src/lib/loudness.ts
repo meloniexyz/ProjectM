@@ -21,6 +21,10 @@ const CACHE_MAX = 5000
 
 let ctx: AudioContext | null = null
 let normalize: GainNode
+// equalizer: headroom gain -> band filters (rebuilt when the band count changes)
+let eqIn: GainNode
+let eqFilters: BiquadFilterNode[] = []
+let outMeter: AnalyserNode | null = null
 let output: GainNode
 let direct: GainNode
 let limited: GainNode
@@ -66,7 +70,9 @@ export function connectAudio(audio: HTMLAudioElement) {
 
   normalize = ctx.createGain()
   output = ctx.createGain()
-  source.connect(normalize)
+  eqIn = ctx.createGain()
+  source.connect(eqIn)
+  eqIn.connect(normalize) // no bands until setEq() is called
 
   // Two paths after the level gain: straight through (sound untouched), or through a
   // peak limiter. The limiter is only used while a song is boosted, where peaks could clip.
@@ -90,6 +96,11 @@ export function connectAudio(audio: HTMLAudioElement) {
   direct.gain.value = 1
   limited.gain.value = 0
   output.connect(ctx.destination)
+  // diagnostics only: level of what actually goes to the speakers (before the volume stage)
+  outMeter = ctx.createAnalyser()
+  outMeter.fftSize = 2048
+  limited.connect(outMeter)
+  direct.connect(outMeter)
 
   // K-weighting (ITU BS.1770): high-pass ~38 Hz + high shelf +4 dB above ~1.5 kHz
   const hp = ctx.createBiquadFilter()
@@ -107,6 +118,62 @@ export function connectAudio(audio: HTMLAudioElement) {
 }
 
 /** The player's volume (0..1 already curved), applied after normalization. */
+/**
+ * Applies an equalizer curve. Bands are rebuilt only when their layout changes; gain changes
+ * glide so dragging a band doesn't click. Boosts are balanced by lowering the input just
+ * enough that the loudest frequency stays at 0 dB (no clipping).
+ */
+export function setEq(eq: { enabled: boolean; bands: { freq: number; type: BiquadFilterType; q: number; gain: number }[] }) {
+  if (!ctx) return
+  const layout = eq.bands.map((b) => `${b.type}@${b.freq}`).join(',')
+  const current = eqFilters.map((f) => `${f.type}@${f.frequency.value}`).join(',')
+  if (layout !== current) {
+    eqIn.disconnect()
+    for (const f of eqFilters) f.disconnect()
+    eqFilters = eq.bands.map((b) => {
+      const f = ctx!.createBiquadFilter()
+      f.type = b.type
+      f.frequency.value = b.freq
+      f.Q.value = b.q
+      f.gain.value = 0
+      return f
+    })
+    let node: AudioNode = eqIn
+    for (const f of eqFilters) node = node.connect(f)
+    node.connect(normalize)
+  }
+  const t = ctx.currentTime
+  eq.bands.forEach((b, i) => eqFilters[i].gain.setTargetAtTime(eq.enabled ? b.gain : 0, t, 0.03))
+  const peak = eq.enabled ? eqPeakDb(eq.bands.map((b) => (eq.enabled ? b.gain : 0))) : 0
+  eqIn.gain.setTargetAtTime(dbToGain(-Math.max(0, peak)), t, 0.03)
+}
+
+const RESPONSE_FREQS = new Float32Array(Array.from({ length: 160 }, (_, i) => 20 * Math.pow(1000, i / 159))) // 20 Hz..20 kHz
+
+/** Combined response of the EQ bands (dB) at the given frequencies, using the target gains. */
+export function eqResponse(freqs: Float32Array<ArrayBuffer>, gains: number[]) {
+  const out = new Float32Array(freqs.length)
+  if (!ctx || eqFilters.length !== gains.length) return out
+  const mag = new Float32Array(freqs.length)
+  const phase = new Float32Array(freqs.length)
+  eqFilters.forEach((f, i) => {
+    // measure each band at its target gain (the live value may still be gliding)
+    const probe = ctx!.createBiquadFilter()
+    probe.type = f.type
+    probe.frequency.value = f.frequency.value
+    probe.Q.value = f.Q.value
+    probe.gain.value = gains[i]
+    probe.getFrequencyResponse(freqs, mag, phase)
+    for (let k = 0; k < freqs.length; k++) out[k] += 20 * Math.log10(mag[k] || 1e-6)
+  })
+  return out
+}
+
+function eqPeakDb(gains: number[]) {
+  const r = eqResponse(RESPONSE_FREQS, gains)
+  return r.reduce((m, v) => Math.max(m, v), -Infinity)
+}
+
 export function setOutputVolume(level: number) {
   if (!ctx) return
   output.gain.setTargetAtTime(level, ctx.currentTime, 0.03)
@@ -236,5 +303,12 @@ export function loudnessDebug() {
     time: mediaElement?.currentTime,
     readyState: mediaElement?.readyState,
     peakNow: peak,
+    outPeak: (() => {
+      if (!outMeter) return 0
+      const b = new Float32Array(outMeter.fftSize)
+      outMeter.getFloatTimeDomainData(b)
+      return b.reduce((m, v) => Math.max(m, Math.abs(v)), 0)
+    })(),
+    eq: { headroomDb: eqIn ? 20 * Math.log10(eqIn.gain.value) : 0, bands: eqFilters.map((f) => `${f.type}@${f.frequency.value}:${f.gain.value.toFixed(1)}`) },
   }
 }
