@@ -2,7 +2,8 @@ import { useSyncExternalStore } from 'react'
 import type Hls from 'hls.js'
 import type { SourceId, StreamInfo, Track } from '../../../shared/types'
 import { recordPlay } from './history'
-import { connectAudio, resumeAudio, setMediaElement, setNormalizeEnabled, setOutputVolume, startSong } from './loudness'
+import { connectAudio, resumeAudio, setMediaElement, setNormalizeEnabled, setOutputVolume, setTargetLufs, startSong } from './loudness'
+import { getSettings, LOUDNESS_LUFS, settingsStore } from './settings'
 import { shuffled } from './format'
 import { cleanError, resolveStream } from './sources'
 import { toast } from './ui'
@@ -187,8 +188,20 @@ function applyVolume() {
 }
 applyVolume()
 
-/** Our 0..1 volume as Spotify's 0..100, on the same curve as the audio element. */
-const spotifyVolume = () => (state.muted ? 0 : Math.round(state.volume ** 2 * 100))
+/** Our 0..1 volume as Spotify's 0..100, on the same curve, plus the user's Spotify level adjustment. */
+const spotifyVolume = () =>
+  state.muted ? 0 : Math.min(100, Math.round(state.volume ** 2 * 100 * 10 ** (getSettings().spotifyLevelDb / 20)))
+
+// react to settings changes
+let lastSettings = getSettings()
+settingsStore.subscribe(() => {
+  const s = getSettings()
+  if (s === lastSettings) return
+  if (s.loudnessLevel !== lastSettings.loudnessLevel) setTargetLufs(LOUDNESS_LUFS[s.loudnessLevel])
+  if (s.spotifyLevelDb !== lastSettings.spotifyLevelDb) applyVolume()
+  lastSettings = s
+})
+setTargetLufs(LOUDNESS_LUFS[getSettings().loudnessLevel])
 
 function stopAudio() {
   detachHls()
@@ -223,7 +236,9 @@ async function load(autoplay: boolean) {
       emit({ playing: false, buffering: false })
       return
     }
-    if (Date.now() < spotifyUnavailableUntil) return playFallback(item.track, seq)
+    if (getSettings().spotifyPlayback === 'alternatives' || Date.now() < spotifyUnavailableUntil) {
+      return playFallback(item.track, seq)
+    }
     return spotifyStart(item.track, seq, startAt)
   }
   if (engine === 'spotify') spotifyStop()
@@ -339,7 +354,7 @@ async function playFallback(track: Track, seq: number) {
   spotifyStop()
   engine = 'audio'
   emit({ buffering: true })
-  if (!fallbackNoticeShown) {
+  if (!fallbackNoticeShown && getSettings().spotifyPlayback === 'app') {
     fallbackNoticeShown = true
     toast("Spotify app isn't available, so Spotify songs play from YouTube Music or SoundCloud")
   }

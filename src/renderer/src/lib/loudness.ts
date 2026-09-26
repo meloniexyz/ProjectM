@@ -9,7 +9,9 @@
  * source publishes (YouTube, ReplayGain tags), or a live measurement over the first seconds.
  */
 
-const TARGET_LUFS = -14
+/** gains below are stored relative to -14 LUFS; the chosen level shifts them all */
+const REFERENCE_LUFS = -14
+let targetOffsetDb = 0
 const MIN_GAIN_DB = -15
 const MAX_GAIN_DB = 9 // boosting quiet songs further risks noise; the limiter catches peaks
 const MEASURE_FIRST_S = 4 // start correcting after this much audio
@@ -96,7 +98,19 @@ export function resumeAudio() {
 function applyGain(db: number, seconds: number) {
   if (!ctx) return
   normalize.gain.cancelScheduledValues(ctx.currentTime)
-  normalize.gain.setTargetAtTime(enabled ? dbToGain(db) : 1, ctx.currentTime, seconds)
+  normalize.gain.setTargetAtTime(enabled ? dbToGain(db + targetOffsetDb) : 1, ctx.currentTime, seconds)
+}
+
+/** Loudness level all songs are brought to (e.g. -23 quiet, -14 normal, -11 loud). */
+export function setTargetLufs(lufs: number) {
+  targetOffsetDb = lufs - REFERENCE_LUFS
+  if (current) applyGain(lastGain, 0.3)
+}
+
+/** Forget remembered per-song levels (they'll be measured again). */
+export function clearLoudnessMemory() {
+  for (const k of Object.keys(cache)) delete cache[k]
+  saveCache()
 }
 
 export function setNormalizeEnabled(on: boolean) {
@@ -154,7 +168,7 @@ function measure() {
   if (measuredSeconds < MEASURE_FIRST_S) return
   const lufs = integrated()
   if (lufs == null) return
-  const target = clampDb(TARGET_LUFS - lufs)
+  const target = clampDb(REFERENCE_LUFS - lufs)
   // first correction is quick, later refinements drift slowly so the level doesn't audibly pump
   applyGain(target, measuredSeconds < 8 ? 1.5 : 6)
   lastGain = target

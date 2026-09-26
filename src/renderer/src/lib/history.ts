@@ -46,3 +46,12 @@ export function mostPlayed(entries: Entry[], n: number) {
     .sort((a, b) => b.count - a.count || b.last - a.last)
     .slice(0, n)
 }
+
+export function clearHistory() {
+  historyStore.set({ entries: [] })
+  try {
+    localStorage.removeItem(KEY)
+  } catch {
+    // not critical
+  }
+}

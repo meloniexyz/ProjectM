@@ -1926,3 +1926,255 @@ kbd {
 .art.round {
   border-radius: 50%;
 }
+
+/* ---------- settings ---------- */
+
+.settings {
+  max-width: 860px;
+  padding: 32px 32px 48px;
+}
+.settings h1 {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: 8px;
+}
+.settings-section {
+  margin-top: 28px;
+}
+.settings-section h2 {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.settings-rows {
+  display: flex;
+  flex-direction: column;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.settings-row:last-child {
+  border-bottom: 0;
+}
+.settings-row.disabled .settings-text {
+  opacity: 0.45;
+}
+.settings-text {
+  min-width: 0;
+}
+.settings-label {
+  font-size: 14px;
+  color: var(--text);
+}
+.settings-hint {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-3);
+  max-width: 560px;
+  user-select: text;
+}
+.settings-control {
+  flex: none;
+}
+.switch {
+  width: 42px;
+  height: 24px;
+  border-radius: 99px;
+  background: #4a4a57;
+  position: relative;
+  transition: background 0.15s;
+}
+.switch span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+.switch.on {
+  background: var(--accent);
+}
+.switch.on span {
+  transform: translateX(18px);
+}
+.select {
+  height: 34px;
+  padding: 0 32px 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line-2);
+  background: var(--bg-3) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a3a3b2' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center;
+  appearance: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.select:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.select option {
+  background: var(--bg-2);
+}
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.range-row input {
+  width: 160px;
+  accent-color: var(--accent);
+}
+.range-value {
+  width: 48px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.shortcuts {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 6px 24px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.side-bottom {
+  margin-top: auto;
+}
+
+/* ---------- edit playlist dialog ---------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.6);
+  animation: fade-in 0.12s ease-out;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.modal {
+  width: min(560px, calc(100vw - 32px));
+  padding: 20px 24px 22px;
+  border-radius: 12px;
+  background: #22222c;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.modal-head h2 {
+  font-size: 22px;
+  font-weight: 800;
+}
+.edit-grid {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 16px;
+}
+.edit-cover {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.edit-cover-btn,
+.hero-art-btn {
+  position: relative;
+  width: 100%;
+  display: block;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.hero-art-btn {
+  width: auto;
+  flex: none;
+  border-radius: 10px;
+}
+.edit-cover-empty {
+  background: var(--bg-3);
+  color: var(--text-3);
+}
+.edit-cover-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.edit-cover-btn:hover .edit-cover-overlay,
+.hero-art-btn:hover .edit-cover-overlay {
+  opacity: 1;
+}
+.edit-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.field.grow {
+  flex: 1;
+}
+.field small {
+  align-self: flex-end;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.textarea {
+  flex: 1;
+  min-height: 110px;
+  padding: 10px 12px;
+  resize: none;
+  line-height: 1.4;
+}
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+}
+.modal-foot .hint {
+  font-size: 11px;
+}
+.hero-description {
+  margin: -4px 0 8px;
+  max-width: 640px;
+  color: var(--text-2);
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}

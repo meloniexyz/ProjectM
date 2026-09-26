@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { cls } from '../lib/format'
-import { createPlaylist, deletePlaylist, lib } from '../lib/library'
+import { createPlaylist, deletePlaylist, lib, openPlaylistEditor } from '../lib/library'
 import { useNav } from '../lib/nav'
 import { playTracks } from '../lib/player'
 import { accountStore } from '../lib/accounts'
@@ -8,7 +8,7 @@ import { isConnected, SOURCE_ORDER, SOURCES, useConnections } from '../lib/sourc
 import { useStore } from '../lib/store'
 import { openMenu } from '../lib/ui'
 import { PlaylistArt } from './common'
-import { DiscIcon, HomeIcon, MusicIcon, PlusIcon, SearchIcon, SourceBadge } from './Icons'
+import { DiscIcon, HomeIcon, MusicIcon, PlusIcon, SearchIcon, SettingsIcon, SourceBadge } from './Icons'
 
 export function Sidebar() {
   const nav = useNav()
@@ -76,6 +76,7 @@ export function Sidebar() {
               openMenu(e, [
                 { label: 'Play', disabled: !p.tracks.length, onClick: () => playTracks(p.tracks) },
                 { label: 'Open', onClick: () => nav.go({ kind: 'playlist', id: p.id }) },
+                { label: 'Edit details', onClick: () => openPlaylistEditor(p.id) },
                 { separator: true },
                 { label: 'Delete playlist', danger: true, onClick: () => deletePlaylist(p.id) },
               ])
@@ -90,6 +91,10 @@ export function Sidebar() {
             )}
           </div>
         ))}
+      </div>
+
+      <div className="side-section side-bottom">
+        {item(v.kind === 'settings', <SettingsIcon />, 'Settings', () => nav.go({ kind: 'settings' }))}
       </div>
 
       {scan && (

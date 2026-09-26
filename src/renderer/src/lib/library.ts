@@ -96,6 +96,16 @@ export function removeFromPlaylist(id: string, indices: number[]) {
   updatePlaylist(id, (p) => ({ tracks: p.tracks.filter((_, i) => !drop.has(i)) }))
 }
 
+export function updatePlaylistDetails(id: string, details: { name: string; description: string; cover?: string }) {
+  const name = details.name.trim()
+  if (!name) return
+  updatePlaylist(id, () => ({ name, description: details.description.trim() || undefined, cover: details.cover }))
+}
+
+/** Which playlist's "Edit details" dialog is open. */
+export const editPlaylistStore = createStore<{ id: string | null }>({ id: null })
+export const openPlaylistEditor = (id: string) => editPlaylistStore.set({ id })
+
 export function renamePlaylist(id: string, name: string) {
   name = name.trim()
   if (name) updatePlaylist(id, () => ({ name }))

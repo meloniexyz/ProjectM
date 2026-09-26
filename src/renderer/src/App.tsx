@@ -7,16 +7,34 @@ import { Sidebar } from './components/Sidebar'
 import { RemotePlaylistView } from './components/AccountViews'
 import { HomeView } from './components/HomeView'
 import { NowPlaying } from './components/NowPlaying'
+import { EditPlaylistHost } from './components/EditPlaylist'
 import { AlbumsView, AlbumView, PlaylistView, SearchView, SongsView, SourceView } from './components/Views'
 import { initLibrary } from './lib/library'
 import { initAccounts } from './lib/accounts'
+import { getSettings } from './lib/settings'
+import { SettingsView } from './components/SettingsView'
 import { NavContext, ScrollContext, type Nav, type View } from './lib/nav'
 import { getPlayer, next, prev, setVolume, toggle } from './lib/player'
 
 const sameView = (a: View, b: View) => JSON.stringify(a) === JSON.stringify(b)
 
+/** The page to open on launch, per the "Start page" setting (settings load before first render). */
+function startView(): View {
+  const page = getSettings().startPage
+  if (page === 'last') {
+    try {
+      const last = JSON.parse(localStorage.getItem('projectm.lastView') || 'null') as View | null
+      if (last) return last
+    } catch {
+      // fall through
+    }
+    return { kind: 'home' }
+  }
+  return { kind: page }
+}
+
 export function App() {
-  const [stack, setStack] = useState<View[]>([{ kind: 'home' }])
+  const [stack, setStack] = useState<View[]>([startView()])
   const [panel, setPanel] = useState<'queue' | 'nowPlaying' | null>(() => {
     try {
       return (localStorage.getItem('projectm.panel') as 'queue' | 'nowPlaying' | null) ?? 'nowPlaying'
@@ -51,6 +69,15 @@ export function App() {
     initLibrary()
     initAccounts()
   }, [])
+
+  // remember the page for "open where I left off"
+  useEffect(() => {
+    try {
+      localStorage.setItem('projectm.lastView', JSON.stringify(view))
+    } catch {
+      // not critical
+    }
+  }, [view])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -101,6 +128,7 @@ export function App() {
             <NowPlaying onClose={() => togglePanel('nowPlaying')} onOpenQueue={() => togglePanel('queue')} />
           )}
           <PlayerBar panel={panel} onTogglePanel={togglePanel} />
+          <EditPlaylistHost />
           <ContextMenuHost />
           <Toasts />
         </div>
@@ -125,6 +153,8 @@ function Page({ view }: { view: View }) {
       return <SourceView source={view.source} />
     case 'home':
       return <HomeView />
+    case 'settings':
+      return <SettingsView />
     case 'remotePlaylist':
       return <RemotePlaylistView source={view.source} id={view.id} name={view.name} />
   }

@@ -8,7 +8,7 @@ import {
   lib,
   matches,
   removeFolder,
-  renamePlaylist,
+  openPlaylistEditor,
   rescan,
   sortedLibrary,
   useAlbums,
@@ -365,7 +365,6 @@ function ResultSection(props: {
 export function PlaylistView({ id }: { id: string }) {
   const nav = useNav()
   const playlist = useStore(lib, (s) => s.playlists.find((p) => p.id === id))
-  const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   useEffect(() => {
@@ -377,23 +376,9 @@ export function PlaylistView({ id }: { id: string }) {
   if (!playlist) return <Empty icon={<PlaylistIcon size={30} />} title="Playlist not found" />
 
   const sources = new Set(playlist.tracks.map((t) => t.source))
-  const titleNode = editing ? (
-    <input
-      className="h1-input"
-      autoFocus
-      defaultValue={playlist.name}
-      onFocus={(e) => e.target.select()}
-      onBlur={(e) => {
-        renamePlaylist(id, e.target.value)
-        setEditing(false)
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') e.currentTarget.blur()
-        if (e.key === 'Escape') setEditing(false)
-      }}
-    />
-  ) : (
-    <h1 className="editable" title="Click to rename" onClick={() => setEditing(true)}>
+  const edit = () => openPlaylistEditor(id)
+  const titleNode = (
+    <h1 className="editable" title="Edit details" onClick={edit}>
       {playlist.name}
     </h1>
   )
@@ -404,17 +389,28 @@ export function PlaylistView({ id }: { id: string }) {
         kicker="Playlist"
         titleNode={titleNode}
         meta={
-          <span className="meta-row">
+          <>
+            {playlist.description && <p className="hero-description">{playlist.description}</p>}
+            <span className="meta-row">
             {plural(playlist.tracks.length, 'song')}
             {playlist.tracks.length > 0 && ` · ${fmtTotal(sumDuration(playlist.tracks))}`}
             {[...sources].map((s) => (
               <SourceBadge key={s} source={s} size={14} />
             ))}
-          </span>
+            </span>
+          </>
         }
-        art={<PlaylistArt playlist={playlist} className="hero-art" />}
+        art={
+          <button className="hero-art-btn" title="Edit details" onClick={edit}>
+            <PlaylistArt playlist={playlist} className="hero-art" />
+            <span className="edit-cover-overlay">Edit details</span>
+          </button>
+        }
       />
       <PlayActions tracks={playlist.tracks}>
+        <button className="btn ghost" onClick={edit}>
+          Edit details
+        </button>
         <button
           className={cls('btn ghost', confirmDelete && 'danger')}
           onClick={() => {

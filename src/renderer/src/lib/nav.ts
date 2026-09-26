@@ -9,6 +9,7 @@ export type View =
   | { kind: 'playlist'; id: string }
   | { kind: 'source'; source: SourceId }
   | { kind: 'home' }
+  | { kind: 'settings' }
   | { kind: 'remotePlaylist'; source: SourceId; id: string; name: string }
 
 export interface Nav {

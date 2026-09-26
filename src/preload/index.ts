@@ -10,6 +10,7 @@ import type {
   RemotePlaylist,
   SpotifyPlayback,
   StreamInfo,
+  Settings,
   Track,
 } from '../shared/types'
 
@@ -67,9 +68,19 @@ const api = {
     volume: (percent: number): Promise<void> => ipcRenderer.invoke('spotify:volume', percent),
     playback: (): Promise<SpotifyPlayback | null> => ipcRenderer.invoke('spotify:playback'),
   },
+  settings: {
+    get: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
+    set: (patch: Partial<Settings>): Promise<Settings> => ipcRenderer.invoke('settings:set', patch),
+  },
+  app: {
+    info: (): Promise<{ version: string; dataDir: string; electron: string }> => ipcRenderer.invoke('app:info'),
+    openDataFolder: (): Promise<string> => ipcRenderer.invoke('app:openDataFolder'),
+  },
   playlists: {
     get: (): Promise<Playlist[]> => ipcRenderer.invoke('playlists:get'),
     save: (list: Playlist[]): Promise<void> => ipcRenderer.invoke('playlists:save', list),
+    /** opens a file picker; returns the stored image URL, or null if cancelled */
+    pickCover: (): Promise<string | null> => ipcRenderer.invoke('playlists:pickCover'),
   },
 }
 

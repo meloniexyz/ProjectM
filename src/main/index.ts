@@ -10,7 +10,7 @@ import type { AccountSource, StreamingSource } from './sources/types'
 import { getLyrics } from './lyrics'
 import { Secrets } from './secrets'
 import { YouTubeMusic } from './sources/youtube'
-import type { Playlist, ScanProgress, SourceId } from '../shared/types'
+import { DEFAULT_SETTINGS, type Playlist, type ScanProgress, type Settings, type SourceId } from '../shared/types'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } },
@@ -21,6 +21,7 @@ if (process.env.PROJECTM_DATA) app.setPath('userData', process.env.PROJECTM_DATA
 const dataDir = app.getPath('userData')
 const library = new Library(dataDir)
 const playlists = new JsonFile<Playlist[]>(join(dataDir, 'playlists.json'), [])
+const settings = new JsonFile<Settings>(join(dataDir, 'settings.json'), DEFAULT_SETTINGS)
 const secrets = new Secrets(join(dataDir, 'accounts.json'))
 const youtube = new YouTubeMusic(join(dataDir, 'cache'), secrets)
 const spotify = new Spotify(join(dataDir, 'spotify.json'))
@@ -156,17 +157,42 @@ ipcMain.handle('spotify:resume', () => spotify.resume())
 ipcMain.handle('spotify:seek', (_, ms: number) => spotify.seek(ms))
 ipcMain.handle('spotify:volume', (_, percent: number) => spotify.volume(percent))
 ipcMain.handle('spotify:playback', () => spotify.playback())
+ipcMain.handle('settings:get', () => ({ ...DEFAULT_SETTINGS, ...settings.get() }))
+ipcMain.handle('settings:set', async (_, patch: Partial<Settings>) => {
+  const next = { ...DEFAULT_SETTINGS, ...settings.get(), ...patch }
+  await settings.set(next)
+  if ('openAtLogin' in patch) applyOpenAtLogin(next.openAtLogin)
+  return next
+})
+ipcMain.handle('app:info', () => ({ version: app.getVersion(), dataDir, electron: process.versions.electron }))
+ipcMain.handle('app:openDataFolder', () => shell.openPath(dataDir))
+
+/** Start with Windows. In development the app runs as electron.exe + project folder, so pass the folder along. */
+function applyOpenAtLogin(on: boolean) {
+  const args = app.isPackaged ? [] : [app.getAppPath()]
+  app.setLoginItemSettings({ openAtLogin: on, path: process.execPath, args })
+}
+
 ipcMain.handle('playlists:get', () => playlists.get())
 ipcMain.handle('playlists:save', (_, list: Playlist[]) => playlists.set(list))
+ipcMain.handle('playlists:pickCover', async () => {
+  const r = await dialog.showOpenDialog(win!, {
+    title: 'Choose a playlist picture',
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }],
+  })
+  if (r.canceled || !r.filePaths[0]) return null
+  return library.importImage(r.filePaths[0])
+})
 
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark'
   Menu.setApplicationMenu(null)
-  await Promise.all([library.load(), playlists.load(), spotify.load(), secrets.load(), windowState.load()])
+  await Promise.all([library.load(), playlists.load(), spotify.load(), secrets.load(), windowState.load(), settings.load()])
   protocol.handle('media', (req) => handleMedia(req, library, youtube))
   createWindow()
   // Pick up files added/changed while the app was closed.
-  library.rescan(progress)
+  if ({ ...DEFAULT_SETTINGS, ...settings.get() }.rescanOnStartup) library.rescan(progress)
 })
 
 app.on('window-all-closed', () => app.quit())

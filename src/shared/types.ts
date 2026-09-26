@@ -24,6 +24,9 @@ export interface Track {
 export interface Playlist {
   id: string
   name: string
+  description?: string
+  /** custom cover image (media://art/...); falls back to a mosaic of the songs' covers */
+  cover?: string
   tracks: Track[]
   createdAt: number
   updatedAt: number
@@ -89,4 +92,29 @@ export interface SoundCloudProfile {
   followers: number
   likes: number
   city?: string
+}
+
+/** App settings (stored in settings.json in the app's data folder). */
+export interface Settings {
+  /** page shown when ProjectM opens */
+  startPage: 'home' | 'songs' | 'search' | 'last'
+  /** loudness all songs are leveled to, like Spotify's Quiet / Normal / Loud */
+  loudnessLevel: 'quiet' | 'normal' | 'loud'
+  /** Spotify songs: through the Spotify app when it's open, or always from YouTube Music / SoundCloud */
+  spotifyPlayback: 'app' | 'alternatives'
+  /** dB added to Spotify's volume, to match it with the other sources by ear */
+  spotifyLevelDb: number
+  showLyrics: boolean
+  rescanOnStartup: boolean
+  openAtLogin: boolean
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  startPage: 'home',
+  loudnessLevel: 'normal',
+  spotifyPlayback: 'app',
+  spotifyLevelDb: 0,
+  showLyrics: true,
+  rescanOnStartup: true,
+  openAtLogin: false,
 }

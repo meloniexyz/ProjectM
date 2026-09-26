@@ -183,6 +183,15 @@ export class Library {
     }
   }
 
+  /** Copies an image the user picked (e.g. a playlist cover) into the art store. */
+  async importImage(path: string): Promise<string> {
+    const ext = IMAGE_EXT[extname(path).toLowerCase()]
+    if (!ext) throw new Error('Pick a JPG, PNG or WebP image')
+    const { size } = await stat(path)
+    if (size > 15 * 1024 * 1024) throw new Error('That image is too big (max 15 MB)')
+    return this.saveArt(await readFile(path), ext)
+  }
+
   /** Stores cover art once per unique image, keyed by content hash. */
   private async saveArt(data: Uint8Array, ext: string) {
     const name = `${hash(data)}.${ext}`

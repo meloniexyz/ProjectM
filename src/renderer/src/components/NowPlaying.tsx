@@ -5,6 +5,7 @@ import { albumKey } from '../lib/library'
 import { useNav } from '../lib/nav'
 import { jump, seek, usePlayer } from '../lib/player'
 import { SOURCES } from '../lib/sources'
+import { useSettings } from '../lib/settings'
 import { Artwork } from './common'
 import { SourceBadge, XIcon } from './Icons'
 
@@ -15,6 +16,7 @@ export function NowPlaying({ onClose, onOpenQueue }: { onClose: () => void; onOp
   const via = usePlayer((s) => s.via)
   const nextItem = usePlayer((s) => s.queue[s.index + 1])
   const index = usePlayer((s) => s.index)
+  const { showLyrics } = useSettings()
 
   return (
     <aside className="queue now-playing">
@@ -61,7 +63,7 @@ export function NowPlaying({ onClose, onOpenQueue }: { onClose: () => void; onOp
             )}
           </div>
 
-          <LyricsCard track={track} />
+          {showLyrics && <LyricsCard track={track} />}
 
           {nextItem && (
             <div className="np-card">
