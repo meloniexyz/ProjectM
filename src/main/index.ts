@@ -19,7 +19,11 @@ protocol.registerSchemesAsPrivileged([
 // One ProjectM at a time: launching it again focuses the open window (like Spotify).
 if (!app.requestSingleInstanceLock()) app.exit(0)
 app.on('second-instance', () => {
-  if (!win) return
+  // the running copy may have lost its window: make a new one rather than doing nothing
+  if (!win || win.isDestroyed()) {
+    if (app.isReady()) createWindow()
+    return
+  }
   if (win.isMinimized()) win.restore()
   win.show()
   win.focus()
@@ -88,10 +92,14 @@ function createWindow() {
     },
   })
 
-  win.once('ready-to-show', () => {
-    if (windowState.get().maximized) win?.maximize()
-    win?.show()
-  })
+  const reveal = () => {
+    if (!win || win.isDestroyed() || win.isVisible()) return
+    if (windowState.get().maximized) win.maximize()
+    win.show()
+  }
+  win.once('ready-to-show', reveal)
+  // safety net: never stay invisible if the page is slow or fails to signal it's ready
+  setTimeout(reveal, 4000)
   win.on('close', () => {
     if (!win) return
     // written synchronously: the app quits right after the window closes

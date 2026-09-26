@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { LibraryState, Playlist, ScanProgress, Track } from '../../../shared/types'
 import { collator, norm, plural } from './format'
+import { getSettings, settingsStore } from './settings'
 import { createStore, useStore } from './store'
 import { toast } from './ui'
 
@@ -25,9 +26,25 @@ export const lib = createStore<LibState>({
 
 const api = window.api
 
+const SHORT_CLIP_SECONDS = 30
+let scanned: LibraryState = { folders: [], tracks: [] }
+let hiding = getSettings().hideShortClips
+
+/** Publishes the scanned library, minus short clips (drum samples etc.) if that setting is on. */
 function apply(l: LibraryState) {
-  lib.set({ folders: l.folders, tracks: l.tracks, localIds: new Set(l.tracks.map((t) => t.id)) })
+  scanned = l
+  const tracks = hiding ? l.tracks.filter((t) => !(t.duration > 0 && t.duration < SHORT_CLIP_SECONDS)) : l.tracks
+  lib.set({ folders: l.folders, tracks, localIds: new Set(tracks.map((t) => t.id)) })
 }
+
+settingsStore.subscribe(() => {
+  if (getSettings().hideShortClips === hiding) return
+  hiding = getSettings().hideShortClips
+  apply(scanned)
+})
+
+/** How many scanned files are hidden as short clips (for the Settings page). */
+export const hiddenClipCount = () => scanned.tracks.length - lib.get().tracks.length
 
 let started = false
 export async function initLibrary() {

@@ -3,7 +3,7 @@ import type { Settings, SourceId } from '../../../shared/types'
 import { ACCOUNT_SOURCES, disconnectAccount, useAccount } from '../lib/accounts'
 import { cls, plural } from '../lib/format'
 import { clearHistory, historyStore } from '../lib/history'
-import { addFolder, lib, rescan } from '../lib/library'
+import { addFolder, hiddenClipCount, lib, rescan } from '../lib/library'
 import { clearLoudnessMemory } from '../lib/loudness'
 import { useNav } from '../lib/nav'
 import { toggleNormalize, usePlayer } from '../lib/player'
@@ -151,6 +151,14 @@ export function SettingsView({ tab = 'general' }: { tab?: 'general' | 'eq' }) {
             </button>
             <FolderLink />
           </div>
+        </Row>
+        <Row
+          label="Hide short clips"
+          hint={`Hides audio under 30 seconds, like drum kit samples and sound effects. ${
+            s.hideShortClips && hiddenClipCount() ? `${plural(hiddenClipCount(), 'clip')} hidden right now.` : ''
+          }`}
+        >
+          <Switch on={s.hideShortClips} onChange={() => set({ hideShortClips: !s.hideShortClips })} />
         </Row>
         <Row label="Scan for new music on startup" hint="Picks up files you added or changed while ProjectM was closed.">
           <Switch on={s.rescanOnStartup} onChange={() => set({ rescanOnStartup: !s.rescanOnStartup })} />

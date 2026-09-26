@@ -32,6 +32,26 @@ function isInside(child: string, parent: string) {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
+/**
+ * Collects audio files under `dir`. Folders we can't open (e.g. "System Volume Information"
+ * at a drive root, or other users' folders) are skipped instead of failing the whole scan.
+ */
+async function walk(dir: string, out: string[]) {
+  let entries
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const e of entries) {
+    const full = join(dir, e.name)
+    if (e.isDirectory()) {
+      if (e.name === '$RECYCLE.BIN' || e.name === 'System Volume Information') continue
+      await walk(full, out)
+    } else if (e.isFile() && AUDIO_EXT.has(extname(e.name).toLowerCase())) out.push(full)
+  }
+}
+
 export class Library {
   readonly artDir: string
   private store: JsonFile<Data>
@@ -104,15 +124,7 @@ export class Library {
     progress({ phase: 'listing', done: 0, total: 0 })
 
     const files: string[] = []
-    for (const folder of folders) {
-      try {
-        for (const e of await readdir(folder, { recursive: true, withFileTypes: true })) {
-          if (e.isFile() && AUDIO_EXT.has(extname(e.name).toLowerCase())) files.push(join(e.parentPath, e.name))
-        }
-      } catch (err) {
-        console.warn('[library] cannot read folder', folder, err)
-      }
-    }
+    for (const folder of folders) await walk(folder, files)
 
     // Unchanged files (same mtime) are reused instead of re-parsed, so rescans are fast.
     const previous = new Map(this.store.get().tracks.map((t) => [t.path, t]))

@@ -63,6 +63,7 @@ function cached<T>(key: string, fn: () => Promise<T>): Promise<T> {
   if (!hit) {
     hit = fn().catch((err) => {
       cache.delete(key)
+      initAccounts() // a failed call may mean the login was dropped: refresh "connected" status
       throw cleanError(err)
     })
     cache.set(key, hit)

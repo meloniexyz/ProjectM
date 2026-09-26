@@ -354,7 +354,9 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
       })
       const t = (await res.json()) as GoogleTokenResponse
       if (!t.access_token) {
-        throw new Error(`Your YouTube sign-in expired (${t.error_description || t.error}). Sign in again.`)
+        // the Google client was deleted or access was revoked: sign out so the app shows "Connect" again
+        if (t.error === 'invalid_client' || t.error === 'invalid_grant' || t.error === 'deleted_client') await this.logout()
+        throw new Error(`Your YouTube sign-in stopped working (${t.error_description || t.error}). Sign in again on the YouTube Music page.`)
       }
       const next: SavedLogin = {
         ...saved,

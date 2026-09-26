@@ -1,6 +1,6 @@
 {
   "name": "projectm",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "ProjectM: local files, YouTube Music, SoundCloud and Spotify in one player",
   "main": "./out/main/index.js",
   "scripts": {
@@ -70,7 +70,7 @@
       "createStartMenuShortcut": true,
       "shortcutName": "ProjectM",
       "uninstallDisplayName": "ProjectM",
-      "runAfterFinish": true,
+      "runAfterFinish": false,
       "deleteAppDataOnUninstall": false
     }
   }

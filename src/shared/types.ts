@@ -121,6 +121,8 @@ export interface Settings {
   spotifyLevelDb: number
   showLyrics: boolean
   rescanOnStartup: boolean
+  /** hide local audio under 30 s (samples, sound effects, voice memos) */
+  hideShortClips: boolean
   openAtLogin: boolean
   eq: EqSettings
 }
@@ -132,6 +134,7 @@ export const DEFAULT_SETTINGS: Settings = {
   spotifyLevelDb: 0,
   showLyrics: true,
   rescanOnStartup: true,
+  hideShortClips: true,
   openAtLogin: false,
   eq: { enabled: false, bands: 7, gains: [0, 0, 0, 0, 0, 0, 0], preset: 'Flat', custom: [] },
 }
