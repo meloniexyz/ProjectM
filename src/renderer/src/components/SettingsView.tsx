@@ -13,9 +13,10 @@ import { useStore } from '../lib/store'
 import { toast } from '../lib/ui'
 import { SourceBadge } from './Icons'
 import { EqualizerPanel } from './Equalizer'
+import { ThemesPanel } from './ThemesPanel'
 
 /** Spotify-style settings: sections of rows, each with a label, a short explanation and a control. */
-export function SettingsView({ tab = 'general' }: { tab?: 'general' | 'eq' }) {
+export function SettingsView({ tab = 'general' }: { tab?: 'general' | 'eq' | 'themes' }) {
   const nav = useNav()
   const s = useSettings()
   const set = (patch: Partial<Settings>) => updateSettings(patch)
@@ -39,9 +40,14 @@ export function SettingsView({ tab = 'general' }: { tab?: 'general' | 'eq' }) {
         <button className={cls('chip', tab === 'eq' && 'on')} onClick={() => nav.go({ kind: 'settings', tab: 'eq' })}>
           Equalizer
         </button>
+        <button className={cls('chip', tab === 'themes' && 'on')} onClick={() => nav.go({ kind: 'settings', tab: 'themes' })}>
+          Themes
+        </button>
       </div>
       {tab === 'eq' ? (
         <EqualizerPanel />
+      ) : tab === 'themes' ? (
+        <ThemesPanel />
       ) : (
       <>
 

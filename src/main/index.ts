@@ -56,7 +56,7 @@ function account(id: SourceId) {
   return source
 }
 let win: BrowserWindow | null = null
-const windowState = new JsonFile<{ x?: number; y?: number; width: number; height: number; maximized?: boolean }>(
+const windowState = new JsonFile<{ x?: number; y?: number; width: number; height: number; maximized?: boolean; bg?: string; symbol?: string }>(
   join(dataDir, 'window.json'),
   { width: 1320, height: 840 },
 )
@@ -70,7 +70,7 @@ function savedBounds() {
   return visible ? { x: s.x, y: s.y, width: s.width, height: s.height } : { width: s.width, height: s.height }
 }
 
-const BG = '#09090c'
+const BG = '#09090c' // default theme; the saved theme is applied as soon as the page loads
 
 function createWindow() {
   win = new BrowserWindow({
@@ -79,11 +79,11 @@ function createWindow() {
     minHeight: 600,
     show: false,
     title: 'ProjectM',
-    backgroundColor: BG,
+    backgroundColor: windowState.get().bg ?? BG,
     // the installed .exe carries its own icon; in development use the one from build/
     ...(app.isPackaged ? {} : { icon: join(__dirname, '../../build/icon.png') }),
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: BG, symbolColor: '#a3a3b2', height: 40 },
+    titleBarOverlay: { color: windowState.get().bg ?? BG, symbolColor: windowState.get().symbol ?? '#a3a3b2', height: 40 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -104,7 +104,7 @@ function createWindow() {
   win.on('close', () => {
     if (!win) return
     // written synchronously: the app quits right after the window closes
-    const state = { ...win.getNormalBounds(), maximized: win.isMaximized() }
+    const state = { ...windowState.get(), ...win.getNormalBounds(), maximized: win.isMaximized() }
     try {
       writeFileSync(join(dataDir, 'window.json'), JSON.stringify(state))
     } catch (err) {
@@ -199,6 +199,12 @@ ipcMain.handle('settings:set', async (_, patch: Partial<Settings>) => {
 })
 ipcMain.handle('app:info', () => ({ version: app.getVersion(), dataDir, electron: process.versions.electron }))
 ipcMain.handle('app:openDataFolder', () => shell.openPath(dataDir))
+ipcMain.handle('app:setWindowColors', (_, bg: string, symbol: string) => {
+  if (!win || win.isDestroyed()) return
+  win.setBackgroundColor(bg)
+  win.setTitleBarOverlay({ color: bg, symbolColor: symbol, height: 40 })
+  windowState.set({ ...windowState.get(), bg, symbol }) // next launch opens in the theme's colours
+})
 
 /** Start with Windows. In development the app runs as electron.exe + project folder, so pass the folder along. */
 function applyOpenAtLogin(on: boolean) {

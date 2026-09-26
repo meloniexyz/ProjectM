@@ -79,6 +79,7 @@ const api = {
   app: {
     info: (): Promise<{ version: string; dataDir: string; electron: string }> => ipcRenderer.invoke('app:info'),
     openDataFolder: (): Promise<string> => ipcRenderer.invoke('app:openDataFolder'),
+    setWindowColors: (bg: string, symbol: string): Promise<void> => ipcRenderer.invoke('app:setWindowColors', bg, symbol),
   },
   playlists: {
     get: (): Promise<Playlist[]> => ipcRenderer.invoke('playlists:get'),

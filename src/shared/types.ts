@@ -133,6 +133,10 @@ export interface Settings {
   hideShortClips: boolean
   openAtLogin: boolean
   eq: EqSettings
+  /** colour theme id (see renderer/lib/themes.ts) */
+  theme: string
+  /** custom accent colour on top of the theme, or null to use the theme's own */
+  accent: string | null
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -145,4 +149,6 @@ export const DEFAULT_SETTINGS: Settings = {
   hideShortClips: true,
   openAtLogin: false,
   eq: { enabled: false, bands: 7, gains: [0, 0, 0, 0, 0, 0, 0], preset: 'Flat', custom: [] },
+  theme: 'projectm',
+  accent: null,
 }
