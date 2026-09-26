@@ -108,6 +108,11 @@ export function addToPlaylist(id: string, tracks: Track[]) {
   toast(`Added ${plural(added.length, 'song')} to ${p.name}`)
 }
 
+/** Removes every copy of a song (by uid) from a playlist. */
+export function removeTrackFromPlaylist(id: string, uid: string) {
+  updatePlaylist(id, (p) => ({ tracks: p.tracks.filter((t) => t.uid !== uid) }))
+}
+
 export function removeFromPlaylist(id: string, indices: number[]) {
   const drop = new Set(indices)
   updatePlaylist(id, (p) => ({ tracks: p.tracks.filter((_, i) => !drop.has(i)) }))

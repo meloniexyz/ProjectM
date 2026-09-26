@@ -451,6 +451,25 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     return this.dataPlaylistTracks('LM').catch(() => this.dataPlaylistTracks('LL'))
   }
 
+  async isLiked(ids: string[]): Promise<boolean[]> {
+    if (!this.saved()) return ids.map(() => false)
+    const res = await this.dataApi<{ items: { videoId: string; rating: string }[] }>('/videos/getRating', { id: ids.join(',') })
+    return ids.map((id) => res.items.find((r) => r.videoId === id)?.rating === 'like')
+  }
+
+  async setLiked(id: string, liked: boolean) {
+    if (!this.saved()) throw new Error('Sign in to YouTube Music to like songs')
+    const token = await this.bearer()
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos/rate?${new URLSearchParams({ id, rating: liked ? 'like' : 'none' })}`,
+      { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+    )
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: { message?: string } }
+      throw new Error(`YouTube: ${j.error?.message?.replace(/<[^>]+>/g, '') || res.status}`)
+    }
+  }
+
   async playlists(): Promise<RemotePlaylist[]> {
     if (this.usesDataApi) {
       const out: RemotePlaylist[] = []

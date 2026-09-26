@@ -53,11 +53,15 @@ const api = {
     top: (s: SourceId): Promise<Track[]> => ipcRenderer.invoke('account:top', s),
     playlists: (s: SourceId): Promise<RemotePlaylist[]> => ipcRenderer.invoke('account:playlists', s),
     playlistTracks: (s: SourceId, id: string): Promise<Track[]> => ipcRenderer.invoke('account:playlistTracks', s, id),
+    canLike: (s: SourceId): Promise<boolean> => ipcRenderer.invoke('account:canLike', s),
+    isLiked: (s: SourceId, ids: string[]): Promise<boolean[]> => ipcRenderer.invoke('account:isLiked', s, ids),
+    setLiked: (s: SourceId, id: string, liked: boolean): Promise<void> => ipcRenderer.invoke('account:setLiked', s, id, liked),
   },
   soundcloud: {
     findProfiles: (q: string): Promise<SoundCloudProfile[]> => ipcRenderer.invoke('soundcloud:findProfiles', q),
   },
-  lyrics: (t: { title: string; artist: string; album: string; duration: number }): Promise<Lyrics | null> =>
+  /** all lyric versions found, best first */
+  lyrics: (t: { title: string; artist: string; album: string; duration: number }): Promise<Lyrics[]> =>
     ipcRenderer.invoke('lyrics:get', t),
   /** play controls for Spotify Connect */
   spotify: {

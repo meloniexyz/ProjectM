@@ -1,4 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { SaveMenu, checkLiked, likedStateStore } from './SaveMenu'
+import { lib } from '../lib/library'
+import { useStore } from '../lib/store'
 import { cls, fmtTime } from '../lib/format'
 import { albumKey } from '../lib/library'
 import { useNav } from '../lib/nav'
@@ -16,6 +19,8 @@ import {
 } from '../lib/player'
 import { Artwork, Slider } from './common'
 import {
+  AddCircleIcon,
+  SavedCircleIcon,
   LevelIcon,
   NextIcon,
   NowPlayingIcon,
@@ -47,6 +52,11 @@ export function PlayerBar({ panel, onTogglePanel }: { panel: Panel | null; onTog
   const via = usePlayer((s) => s.via)
   const normalize = usePlayer((s) => s.normalize)
   const eqOn = useSettings().eq.enabled
+  const [saveAnchor, setSaveAnchor] = useState<DOMRect | null>(null)
+  const likedOnPlatform = useStore(likedStateStore, (s) => (track ? s.liked[track.uid] : false))
+  const inPlaylist = useStore(lib, (s) => !!track && s.playlists.some((p) => p.tracks.some((t) => t.uid === track.uid)))
+  const saved = !!likedOnPlatform || inPlaylist
+  useEffect(() => checkLiked(track), [track])
   // while dragging the seek bar, show where you'd land without actually seeking yet
   const [preview, setPreview] = useState<number | null>(null)
   const shownPos = preview ?? position
@@ -88,6 +98,14 @@ export function PlayerBar({ panel, onTogglePanel }: { panel: Panel | null; onTog
                 </>
               )}
             </span>
+            <button
+              className={cls('icon-btn save-btn', saved && 'saved')}
+              title={saved ? 'Saved: change where' : 'Save to Liked Songs or a playlist'}
+              onClick={(e) => setSaveAnchor(e.currentTarget.getBoundingClientRect())}
+            >
+              {saved ? <SavedCircleIcon size={18} /> : <AddCircleIcon size={18} />}
+            </button>
+            {saveAnchor && <SaveMenu track={track} anchor={saveAnchor} onClose={() => setSaveAnchor(null)} />}
           </>
         ) : (
           <div className="np-empty">Nothing playing</div>

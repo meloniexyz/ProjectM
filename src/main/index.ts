@@ -169,6 +169,17 @@ ipcMain.handle('account:logout', async (_, s: SourceId) => {
 ipcMain.handle('account:liked', (_, s: SourceId) => account(s).liked())
 ipcMain.handle('account:top', (_, s: SourceId) => (s === 'spotify' ? spotify.top() : account(s).liked()))
 ipcMain.handle('account:playlists', (_, s: SourceId) => account(s).playlists())
+ipcMain.handle('account:canLike', (_, s: SourceId) => !!accounts[s]?.setLiked)
+ipcMain.handle('account:isLiked', async (_, s: SourceId, ids: string[]) => {
+  const src = accounts[s]
+  if (!src?.isLiked || !(await src.status()).connected) return ids.map(() => false)
+  return src.isLiked(ids)
+})
+ipcMain.handle('account:setLiked', (_, s: SourceId, id: string, liked: boolean) => {
+  const src = accounts[s]
+  if (!src?.setLiked) throw new Error("This platform doesn't allow liking songs from other apps")
+  return src.setLiked(id, liked)
+})
 ipcMain.handle('account:playlistTracks', (_, s: SourceId, id: string) => account(s).playlistTracks(id))
 ipcMain.handle('lyrics:get', (_, t: { title: string; artist: string; album: string; duration: number }) =>
   getLyrics(t.title, t.artist, t.album, t.duration),

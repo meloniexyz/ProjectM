@@ -2339,3 +2339,171 @@ kbd {
   right: -4px;
   bottom: -4px;
 }
+
+/* ---------- lyrics tools ---------- */
+
+.lyrics-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+}
+.sync-nudge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chip-btn {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+.chip-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text);
+}
+.sync-value {
+  min-width: 52px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.sync-value.set {
+  color: var(--accent-2);
+  cursor: pointer;
+}
+.lyrics-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* ---------- save menu (+ button) ---------- */
+
+.save-btn.saved {
+  color: #3ddc84;
+}
+.save-btn.saved::after {
+  display: none;
+}
+.save-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+}
+.save-menu {
+  position: fixed;
+  width: 320px;
+  max-height: min(520px, calc(100vh - 120px));
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  border-radius: 12px;
+  background: #22222c;
+  border: 1px solid var(--line-2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.save-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-2);
+  margin: 2px 4px 10px;
+}
+.save-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: var(--bg-3);
+  color: var(--text-3);
+}
+.save-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  font-size: 13px;
+}
+.save-list {
+  overflow-y: auto;
+  margin: 4px -4px 0;
+  padding: 0 4px;
+  border-top: 1px solid var(--line-2);
+}
+.save-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+.save-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.save-row.new {
+  margin: 6px 0 4px;
+}
+.save-row.disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.save-new-icon {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--text-2);
+}
+.save-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.save-name small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+  white-space: normal;
+}
+.save-check {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  accent-color: #3ddc84;
+  cursor: pointer;
+}
+.save-empty {
+  padding: 12px 6px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.save-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}

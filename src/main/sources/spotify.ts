@@ -18,6 +18,7 @@ export const REDIRECT_URI = `http://127.0.0.1:${REDIRECT_PORT}/callback`
 const SCOPES = [
   'user-read-private',
   'user-library-read',
+  'user-library-modify',
   'playlist-read-private',
   'playlist-read-collaborative',
   'user-read-playback-state',
@@ -276,6 +277,24 @@ export class Spotify implements StreamingSource, AccountSource {
     return items
       .filter((i) => playable(i.track))
       .map((i) => ({ ...toTrack(i.track), likedAt: i.added_at ? Date.parse(i.added_at) : undefined }))
+  }
+
+  async isLiked(ids: string[]): Promise<boolean[]> {
+    const uris = ids.map((id) => `spotify:track:${id}`).join(',')
+    return this.api<boolean[]>(`/me/library/contains?uris=${encodeURIComponent(uris)}`)
+  }
+
+  async setLiked(id: string, liked: boolean) {
+    const uris = encodeURIComponent(`spotify:track:${id}`)
+    try {
+      await this.api(`/me/library?uris=${uris}`, { method: liked ? 'PUT' : 'DELETE' })
+    } catch (err) {
+      // logins from before this feature lack the "modify library" permission
+      if (/403|insufficient|scope|forbidden/i.test((err as Error).message)) {
+        throw new Error('Reconnect Spotify (Settings → Accounts → Disconnect, then Connect) to let ProjectM save likes.')
+      }
+      throw err
+    }
   }
 
   async playlists(): Promise<RemotePlaylist[]> {

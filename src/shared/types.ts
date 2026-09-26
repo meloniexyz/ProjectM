@@ -75,6 +75,12 @@ export interface RemotePlaylist {
 }
 
 export interface Lyrics {
+  /** LRCLIB entry id */
+  id?: number
+  /** length of the recording these lyrics are timed to (s) */
+  duration?: number
+  /** which release it's from, e.g. the album name */
+  label?: string
   instrumental: boolean
   /** time-synced lines (seconds), when available */
   synced: { time: number; text: string }[] | null

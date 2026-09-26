@@ -15,6 +15,10 @@ export interface AccountSource {
   liked(): Promise<Track[]>
   playlists(): Promise<RemotePlaylist[]>
   playlistTracks(id: string): Promise<Track[]>
+  /** whether each song is in your liked songs on this platform (if the platform supports it) */
+  isLiked?(ids: string[]): Promise<boolean[]>
+  /** like / unlike a song on this platform */
+  setLiked?(id: string, liked: boolean): Promise<void>
 }
 
 export const UA =

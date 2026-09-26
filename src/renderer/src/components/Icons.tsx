@@ -244,3 +244,15 @@ export const HeartIcon = (p: P & { filled?: boolean }) => (
     <path d="M12 20.5s-7.5-4.6-9.3-9.2C1.4 8 3.4 4.5 7 4.5c2 0 3.6 1.2 5 3 1.4-1.8 3-3 5-3 3.6 0 5.6 3.5 4.3 6.8-1.8 4.6-9.3 9.2-9.3 9.2z" />
   </Svg>
 )
+export const AddCircleIcon = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9.5" />
+    <path d="M12 8v8M8 12h8" />
+  </Svg>
+)
+export const SavedCircleIcon = (p: P) => (
+  <svg width={p.size ?? 20} height={p.size ?? 20} viewBox="0 0 24 24" className={p.className} aria-hidden>
+    <circle cx="12" cy="12" r="10.5" fill="currentColor" />
+    <path d="m7.5 12.3 3 3 6-6.3" fill="none" stroke="#0c0a18" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)

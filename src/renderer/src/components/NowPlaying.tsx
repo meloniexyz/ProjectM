@@ -91,46 +91,88 @@ export function NowPlaying({ onClose, onOpenQueue }: { onClose: () => void; onOp
   )
 }
 
-const lyricsCache = new Map<string, Promise<Lyrics | null>>()
+// ---------- lyrics ----------
+
+const lyricsCache = new Map<string, Promise<Lyrics[]>>()
 function fetchLyrics(t: Track) {
   let hit = lyricsCache.get(t.uid)
   if (!hit) {
-    hit = window.api.lyrics({ title: t.title, artist: t.artist, album: t.album, duration: t.duration }).catch(() => null)
+    hit = window.api.lyrics({ title: t.title, artist: t.artist, album: t.album, duration: t.duration }).catch(() => [])
     lyricsCache.set(t.uid, hit)
   }
   return hit
 }
 
+/** Per-song choices the user made: which lyric version, and how far to shift its timing. */
+type LyricsPrefs = Record<string, { id?: number; offset?: number }>
+const PREFS_KEY = 'projectm.lyricsPrefs'
+function readPrefs(): LyricsPrefs {
+  try {
+    return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+function writePref(uid: string, patch: { id?: number; offset?: number }) {
+  const all = readPrefs()
+  all[uid] = { ...all[uid], ...patch }
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(all))
+  } catch {
+    // not critical
+  }
+}
+
 function LyricsCard({ track }: { track: Track }) {
-  const [state, setState] = useState<{ uid: string; lyrics: Lyrics | null; loading: boolean }>({
-    uid: track.uid,
-    lyrics: null,
-    loading: true,
-  })
+  const [options, setOptions] = useState<Lyrics[] | null>(null)
+  const [picked, setPicked] = useState<number | null>(null) // version the user switched to
+  const [offset, setOffset] = useState(0) // seconds added to the lyrics' timing
   const [expanded, setExpanded] = useState(false)
   const position = usePlayer((s) => s.position)
+  // length of the audio actually playing (e.g. the YouTube version of a Spotify song)
+  const playingDuration = usePlayer((s) => s.duration)
   const boxRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let live = true
-    setState({ uid: track.uid, lyrics: null, loading: true })
-    fetchLyrics(track).then((lyrics) => live && setState({ uid: track.uid, lyrics, loading: false }))
+    setOptions(null)
+    setPicked(null)
+    setOffset(readPrefs()[track.uid]?.offset ?? 0)
+    fetchLyrics(track).then((found) => live && setOptions(found))
     return () => {
       live = false
     }
   }, [track])
 
-  const synced = state.lyrics?.synced ?? null
-  // index of the line being sung right now
+  // Which version: the one you picked, else your earlier pick for this song, else the one whose
+  // length matches the audio playing right now (re-evaluated once the real length is known).
+  const choice = useMemo(() => {
+    if (!options?.length) return null
+    if (picked !== null) return picked
+    const saved = readPrefs()[track.uid]?.id
+    const savedIdx = saved != null ? options.findIndex((o) => o.id === saved) : -1
+    if (savedIdx >= 0) return savedIdx
+    const target = playingDuration || track.duration
+    const indexed = options.map((o, i) => ({ o, i }))
+    const synced = indexed.filter(({ o }) => o.synced)
+    const pool = synced.length ? synced : indexed
+    return pool.reduce((best, cur) =>
+      Math.abs((cur.o.duration ?? target) - target) < Math.abs((best.o.duration ?? target) - target) ? cur : best,
+    ).i
+  }, [options, picked, playingDuration, track])
+
+  const lyrics = options && choice !== null ? options[choice] : null
+  const synced = lyrics?.synced ?? null
+  const at = position + offset
   const current = useMemo(() => {
     if (!synced) return -1
     let lo = -1
     for (let i = 0; i < synced.length; i++) {
-      if (synced[i].time <= position + 0.15) lo = i
+      if (synced[i].time <= at + 0.15) lo = i
       else break
     }
     return lo
-  }, [synced, position])
+  }, [synced, at])
 
   // keep the current line in view (scrolls the card, not the page)
   useEffect(() => {
@@ -140,23 +182,38 @@ function LyricsCard({ track }: { track: Track }) {
     box.scrollTo({ top: line.offsetTop - box.clientHeight / 2 + line.clientHeight / 2, behavior: 'smooth' })
   }, [current])
 
+  const nudge = (delta: number) => {
+    const next = Math.round((offset + delta) * 10) / 10
+    setOffset(next)
+    writePref(track.uid, { offset: next })
+  }
+  const nextVersion = () => {
+    if (!options || options.length < 2 || choice === null) return
+    const idx = (choice + 1) % options.length
+    setPicked(idx)
+    writePref(track.uid, { id: options[idx].id })
+  }
+
+  const lengthGap = lyrics?.duration && playingDuration ? Math.round(Math.abs(lyrics.duration - playingDuration)) : 0
+
   let body: ReactNode
-  if (state.loading) body = <div className="lyrics-empty">Looking for lyrics…</div>
-  else if (!state.lyrics) body = <div className="lyrics-empty">No lyrics found for this song.</div>
-  else if (state.lyrics.instrumental) body = <div className="lyrics-empty">Instrumental ♪</div>
+  if (!options) body = <div className="lyrics-empty">Looking for lyrics…</div>
+  else if (!lyrics) body = <div className="lyrics-empty">No lyrics found for this song.</div>
+  else if (lyrics.instrumental) body = <div className="lyrics-empty">Instrumental ♪</div>
   else if (synced)
     body = synced.map((l, i) => (
       <p
         key={i}
         data-line={i}
         className={cls('lyric', i === current && 'on', i < current && 'past')}
-        onClick={() => seek(l.time)}
+        // clicking a line jumps the song to it (respecting the sync shift)
+        onClick={() => seek(Math.max(0, l.time - offset))}
       >
         {l.text || '♪'}
       </p>
     ))
   else
-    body = state.lyrics.plain!.split('\n').map((l, i) => (
+    body = lyrics.plain!.split('\n').map((l, i) => (
       <p key={i} className="lyric plain">
         {l || ' '}
       </p>
@@ -165,8 +222,8 @@ function LyricsCard({ track }: { track: Track }) {
   return (
     <div className={cls('np-card lyrics-card', expanded && 'expanded')}>
       <div className="np-card-head">
-        <span>Lyrics{synced ? '' : state.lyrics?.plain ? ' (not synced)' : ''}</span>
-        {state.lyrics && !state.lyrics.instrumental && (
+        <span>Lyrics{synced ? '' : lyrics?.plain ? ' (not synced)' : ''}</span>
+        {lyrics && !lyrics.instrumental && (
           <button className="link-btn" onClick={() => setExpanded((e) => !e)}>
             {expanded ? 'Show less' : 'Show more'}
           </button>
@@ -175,7 +232,39 @@ function LyricsCard({ track }: { track: Track }) {
       <div className="lyrics-box" ref={boxRef}>
         {body}
       </div>
-      <div className="lyrics-credit">Lyrics from LRCLIB</div>
+      {lyrics && (synced || (options?.length ?? 0) > 1) && (
+        <div className="lyrics-tools">
+          {synced && (
+            <div className="sync-nudge" title="If the highlighted line is ahead of or behind the singing">
+              <button className="chip-btn" onClick={() => nudge(-0.5)} title="Lyrics run ahead of the singing: delay them">
+                −0.5s
+              </button>
+              <span
+                className={cls('sync-value', offset !== 0 && 'set')}
+                title="Double-click to reset"
+                onDoubleClick={() => nudge(-offset)}
+              >
+                {offset === 0 ? 'In sync' : `${offset > 0 ? '+' : ''}${offset.toFixed(1)}s`}
+              </span>
+              <button className="chip-btn" onClick={() => nudge(0.5)} title="Lyrics lag behind the singing: advance them">
+                +0.5s
+              </button>
+            </div>
+          )}
+          {options && options.length > 1 && (
+            <button className="chip-btn" onClick={nextVersion} title="Try lyrics timed to a different version of this song">
+              Other version {(choice ?? 0) + 1}/{options.length}
+            </button>
+          )}
+        </div>
+      )}
+      {synced && lengthGap >= 3 && (
+        <div className="lyrics-hint">
+          These lyrics are timed to a version {lengthGap}s different in length from what is playing. If they drift, try
+          another version or nudge the timing.
+        </div>
+      )}
+      <div className="lyrics-credit">Lyrics from LRCLIB{lyrics?.label ? ` · ${lyrics.label}` : ''}</div>
     </div>
   )
 }
