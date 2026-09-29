@@ -52,8 +52,9 @@ export function TrackList({ tracks, playlistId, showAlbum = true, numbers = 'ind
   }, [tracks, sort])
 
   useLayoutEffect(() => {
-    const scroller = scrollRef.current
     const body = bodyRef.current
+    // the page's <main> mounts together with this list, so its ref may not be attached yet: find it from the DOM
+    const scroller = scrollRef.current?.isConnected ? scrollRef.current : (body?.closest('.main') as HTMLElement | null)
     if (!scroller || !body) return
     const update = () => {
       const offset = scroller.getBoundingClientRect().top - body.getBoundingClientRect().top
