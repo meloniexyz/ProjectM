@@ -1,6 +1,6 @@
 import vm from 'node:vm'
 import { join } from 'node:path'
-import { Innertube, Log, Platform, UniversalCache, type OAuth2Tokens } from 'youtubei.js'
+import { ClientType, Innertube, Log, Platform, UniversalCache, type OAuth2Tokens } from 'youtubei.js'
 import type { AccountStatus, RemotePlaylist, Track } from '../../shared/types'
 import type { Secrets } from '../secrets'
 import { bestMatch, scoredMatch, type MatchTarget } from './match'
@@ -17,8 +17,11 @@ const OAUTH_KEY = 'youtube.oauth'
 /** Stored sign-in: YouTube's OAuth tokens, plus the user's own Google client if they used one. */
 type SavedLogin = OAuth2Tokens & {
   client?: { client_id: string; client_secret: string }
-  /** which API accepted this login: YouTube Music's own, or the official YouTube Data API */
-  mode?: 'music' | 'dataapi'
+  /**
+   * which API accepted this login: YouTube's TV app API (works with the plain code sign-in),
+   * YouTube Music's own, or the official YouTube Data API (own Google client)
+   */
+  mode?: 'tv' | 'music' | 'dataapi'
 }
 
 interface DataApiItem {
@@ -130,6 +133,48 @@ interface CardItem {
   thumbnail?: { url: string }[]
 }
 
+/** A video/playlist tile from YouTube's TV app (tileRenderer). */
+interface TvTile {
+  contentId?: string
+  contentType?: string
+  header?: { tileHeaderRenderer?: { thumbnail?: { thumbnails?: { url: string }[] }; thumbnailOverlays?: { thumbnailOverlayTimeStatusRenderer?: { text?: TvText } }[] } }
+  metadata?: { tileMetadataRenderer?: { title?: TvText; lines?: { lineRenderer?: { items?: { lineItemRenderer?: { text?: TvText } }[] } }[] } }
+}
+type TvText = { simpleText?: string; runs?: { text: string }[] }
+const tvText = (t?: TvText) => t?.simpleText ?? t?.runs?.map((r) => r.text).join('') ?? ''
+
+/** Every value stored under `key` anywhere in a response. */
+function findAll<T>(o: unknown, key: string, out: T[] = []): T[] {
+  if (o && typeof o === 'object') {
+    const rec = o as Record<string, unknown>
+    if (key in rec) out.push(rec[key] as T)
+    for (const v of Object.values(rec)) findAll(v, key, out)
+  }
+  return out
+}
+
+/** "3:25" / "1:02:03" -> seconds */
+const clockSeconds = (s = '') => s.split(':').reduce((acc, p) => acc * 60 + (Number(p) || 0), 0)
+
+function tvTrack(t: TvTile): Track | null {
+  const id = t.contentId
+  const meta = t.metadata?.tileMetadataRenderer
+  const title = tvText(meta?.title)
+  if (!id || !title || t.contentType !== 'TILE_CONTENT_TYPE_VIDEO') return null
+  const artist = tvText(meta?.lines?.[0]?.lineRenderer?.items?.[0]?.lineItemRenderer?.text).replace(/\s+-\s+Topic$/, '')
+  const time = t.header?.tileHeaderRenderer?.thumbnailOverlays?.find((o) => o.thumbnailOverlayTimeStatusRenderer)
+  return {
+    uid: `youtube:${id}`,
+    source: 'youtube',
+    id,
+    title,
+    artist: artist || 'Unknown Artist',
+    album: 'YouTube Music',
+    duration: clockSeconds(tvText(time?.thumbnailOverlayTimeStatusRenderer?.text)),
+    artwork: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+  }
+}
+
 function toTrack(s: ListItem): Track | null {
   if (!s.id || !s.title) return null
   return {
@@ -195,7 +240,10 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
       if (this.saved()?.client) await this.bearer() // refresh our own client's token first
       const saved = this.saved()
       if (!saved) throw new Error('YouTube Music account is not connected')
-      const yt = await Innertube.create({ retrieve_player: false })
+      const yt = await Innertube.create({
+        retrieve_player: false,
+        ...(saved.mode === 'tv' ? { client_type: ClientType.TV } : {}),
+      })
       // tokens refresh themselves hourly; keep the newest ones
       yt.session.on('update-credentials', ({ credentials }) => {
         if (credentials?.access_token) {
@@ -214,8 +262,21 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
   // ---------- account ----------
 
   async status(): Promise<AccountStatus> {
-    return { connected: !!this.saved(), userName: this.userName }
+    const saved = this.saved()
+    // after a restart the name isn't known yet: look it up once (cosmetic, so never wait long)
+    if (saved && this.userName === null && saved.mode !== 'dataapi') {
+      this.nameLookup ??= this.authed()
+        .then((yt) => yt.account.getInfo())
+        .then((info) => {
+          const first = (info.contents?.contents as unknown as { account_name?: { toString(): string } }[] | undefined)?.[0]
+          this.userName = first?.account_name?.toString() ?? null
+        })
+        .catch(() => {})
+      await Promise.race([this.nameLookup, sleep(3000)])
+    }
+    return { connected: !!saved, userName: this.userName }
   }
+  private nameLookup: Promise<void> | null = null
 
   /**
    * "Sign in with a code", like on a smart TV: we show a code, the user approves it at
@@ -250,11 +311,13 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     // Prove the library is reachable before calling it connected. YouTube Music's own API is
     // tried first; if it refuses this kind of login, the official YouTube Data API often accepts it.
     const reasons: string[] = []
-    for (const mode of ['music', 'dataapi'] as const) {
+    // the plain code sign-in belongs to YouTube's TV app, so its TV API is the one that accepts it
+    for (const mode of client ? (['music', 'dataapi'] as const) : (['tv', 'music', 'dataapi'] as const)) {
       await this.save({ ...tokens, client, mode })
       this.authedClient = null
       try {
-        if (mode === 'music') await (await this.authed()).music.getPlaylist('LM')
+        if (mode === 'tv') await this.tvBrowse({ browseId: 'VLLM' })
+        else if (mode === 'music') await (await this.authed()).music.getPlaylist('LM')
         else {
           const me = await this.dataApi<{ items?: { snippet?: { title?: string } }[] }>('/channels', {
             part: 'snippet',
@@ -262,7 +325,7 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
           })
           this.userName = me.items?.[0]?.snippet?.title ?? null
         }
-        if (mode === 'music') {
+        if (mode !== 'dataapi') {
           try {
             const info = await (await this.authed()).account.getInfo()
             const first = (info.contents?.contents as unknown as { account_name?: { toString(): string } }[] | undefined)?.[0]
@@ -273,7 +336,7 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
         }
         return this.status()
       } catch (err) {
-        reasons.push(`${mode === 'music' ? 'YouTube Music' : 'YouTube Data API'}: ${(err as Error).message}`)
+        reasons.push(`${mode === 'tv' ? 'YouTube TV' : mode === 'music' ? 'YouTube Music' : 'YouTube Data API'}: ${(err as Error).message}`)
       }
     }
     await this.logout()
@@ -382,6 +445,7 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     await this.save(undefined)
     this.authedClient = null
     this.userName = null
+    this.nameLookup = null
   }
 
   private signedIn() {
@@ -390,6 +454,46 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
 
   private get usesDataApi() {
     return this.saved()?.mode === 'dataapi'
+  }
+
+  private get usesTv() {
+    return this.saved()?.mode === 'tv'
+  }
+
+  /** One call to YouTube's TV app API with the signed-in account. */
+  private async tvBrowse(body: Record<string, unknown>, endpoint = '/browse') {
+    const yt = await this.signedIn()
+    const res = await yt.actions.execute(endpoint, { ...body, client: 'TV' })
+    return res.data as unknown
+  }
+
+  /** All tiles of a TV page (a playlist, or the playlists page), following "load more". */
+  private async tvTiles(browseId: string, maxPages = 200): Promise<TvTile[]> {
+    let page = await this.tvBrowse({ browseId })
+    const tiles = findAll<TvTile>(page, 'tileRenderer')
+    for (let i = 0; i < maxPages; i++) {
+      const next = findAll<{ continuation?: string }>(page, 'nextContinuationData')[0]?.continuation
+      if (!next) break
+      page = await this.tvBrowse({ continuation: next })
+      tiles.push(...findAll<TvTile>(page, 'tileRenderer'))
+    }
+    return tiles
+  }
+
+  private async tvTracks(browseId: string): Promise<Track[]> {
+    const seen = new Set<string>()
+    return (await this.tvTiles(browseId))
+      .map(tvTrack)
+      .filter((t): t is Track => !!t && !seen.has(t.id) && !!seen.add(t.id))
+  }
+
+  /** ids of liked songs, for the + menu's checkbox (refreshed every few minutes) */
+  private likedIds: { at: number; ids: Set<string> } | null = null
+  private async tvLikedIds() {
+    if (!this.likedIds || Date.now() - this.likedIds.at > 5 * 60_000) {
+      this.likedIds = { at: Date.now(), ids: new Set((await this.tvTracks('VLLM')).map((t) => t.id)) }
+    }
+    return this.likedIds.ids
   }
 
   /** Official YouTube Data API v3 call with the signed-in user's token. */
@@ -448,6 +552,11 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
   }
 
   async liked(): Promise<Track[]> {
+    if (this.usesTv) {
+      const tracks = await this.tvTracks('VLLM')
+      this.likedIds = { at: Date.now(), ids: new Set(tracks.map((t) => t.id)) }
+      return tracks
+    }
     if (!this.usesDataApi) return this.playlistTracks('LM') // YouTube Music's special "Liked music" playlist
     // "LM" is liked music; older accounts may only expose "LL" (all liked videos)
     return this.dataPlaylistTracks('LM').catch(() => this.dataPlaylistTracks('LL'))
@@ -455,12 +564,20 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
 
   async isLiked(ids: string[]): Promise<boolean[]> {
     if (!this.saved()) return ids.map(() => false)
+    if (this.usesTv) {
+      const liked = await this.tvLikedIds()
+      return ids.map((id) => liked.has(id))
+    }
     const res = await this.dataApi<{ items: { videoId: string; rating: string }[] }>('/videos/getRating', { id: ids.join(',') })
     return ids.map((id) => res.items.find((r) => r.videoId === id)?.rating === 'like')
   }
 
   async addToPlaylist(playlistId: string, videoId: string) {
     if (!this.saved()) throw new Error('Sign in to YouTube Music to add to your playlists')
+    if (this.usesTv) {
+      await this.tvBrowse({ playlistId, actions: [{ action: 'ACTION_ADD_VIDEO', addedVideoId: videoId }] }, '/browse/edit_playlist')
+      return
+    }
     const token = await this.bearer()
     const res = await fetch('https://www.googleapis.com/youtube/v3/playlistItems?part=snippet', {
       method: 'POST',
@@ -475,6 +592,12 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
 
   async setLiked(id: string, liked: boolean) {
     if (!this.saved()) throw new Error('Sign in to YouTube Music to like songs')
+    if (this.usesTv) {
+      await this.tvBrowse({ target: { videoId: id } }, liked ? '/like/like' : '/like/removelike')
+      if (liked) this.likedIds?.ids.add(id)
+      else this.likedIds?.ids.delete(id)
+      return
+    }
     const token = await this.bearer()
     const res = await fetch(
       `https://www.googleapis.com/youtube/v3/videos/rate?${new URLSearchParams({ id, rating: liked ? 'like' : 'none' })}`,
@@ -487,6 +610,23 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
   }
 
   async playlists(): Promise<RemotePlaylist[]> {
+    if (this.usesTv) {
+      const out: RemotePlaylist[] = []
+      for (const t of await this.tvTiles('FEplaylist_aggregation', 20)) {
+        const id = t.contentId
+        // "Liked videos" mixes everything you liked; liked music has its own page
+        if (t.contentType !== 'TILE_CONTENT_TYPE_PLAYLIST' || !id || id === 'LL' || id === 'LM' || out.some((p) => p.id === id)) continue
+        out.push({
+          id,
+          name: tvText(t.metadata?.tileMetadataRenderer?.title) || 'Playlist',
+          artwork: t.header?.tileHeaderRenderer?.thumbnail?.thumbnails?.at(-1)?.url,
+          owner: this.userName ?? '',
+          total: 0,
+          editable: id.startsWith('PL') || id === 'WL',
+        })
+      }
+      return out
+    }
     if (this.usesDataApi) {
       const out: RemotePlaylist[] = []
       let pageToken = ''
@@ -547,6 +687,7 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
 
   async playlistTracks(id: string): Promise<Track[]> {
     if (this.usesDataApi) return this.dataPlaylistTracks(id)
+    if (this.usesTv) return this.tvTracks(`VL${id}`)
     const yt = await this.signedIn()
     let page = await yt.music.getPlaylist(id)
     const items: ListItem[] = [...(page.items as unknown as ListItem[])]
