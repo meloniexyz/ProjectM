@@ -114,7 +114,11 @@ function createWindow() {
       console.error('[window] could not save size', err)
     }
   })
-  win.on('closed', () => (win = null))
+  win.on('closed', () => {
+    win = null
+    // hidden helper windows (YouTube's BotGuard) would otherwise keep the app running invisibly
+    app.quit()
+  })
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url)
     return { action: 'deny' }
