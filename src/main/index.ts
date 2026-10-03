@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { JsonFile } from './json-file'
 import { Library } from './library'
 import { handleMedia } from './media'
+import { KeptFiles } from './kept-files'
 import { SoundCloud } from './sources/soundcloud'
 import { Spotify } from './sources/spotify'
 import type { AccountSource, StreamInfo, StreamingSource } from './sources/types'
@@ -39,6 +40,7 @@ app.setAppUserModelId('com.projectm.app')
 const dataDir = app.getPath('userData')
 const library = new Library(dataDir)
 const playlists = new JsonFile<Playlist[]>(join(dataDir, 'playlists.json'), [])
+const keptFiles = new KeptFiles(dataDir)
 const settings = new JsonFile<Settings>(join(dataDir, 'settings.json'), DEFAULT_SETTINGS)
 const secrets = new Secrets(join(dataDir, 'accounts.json'))
 const listenHistory = new ListenHistory(join(dataDir, 'history.json'))
@@ -73,7 +75,7 @@ function savedBounds() {
   return visible ? { x: s.x, y: s.y, width: s.width, height: s.height } : { width: s.width, height: s.height }
 }
 
-const BG = '#09090c' // default theme; the saved theme is applied as soon as the page loads
+const BG = '#000000' // default theme (AMOLED Black); the saved theme is applied as soon as the page loads
 
 function createWindow() {
   win = new BrowserWindow({
@@ -152,7 +154,7 @@ ipcMain.handle('library:rescan', async () => {
   return library.state()
 })
 ipcMain.handle('library:showInFolder', (_, id: string) => {
-  const path = library.pathFor(id)
+  const path = library.pathFor(id) ?? keptFiles.pathFor(id)
   if (path) shell.showItemInFolder(path)
 })
 ipcMain.handle('sources:search', (_, source: SourceId, query: string) => streamingSource(source).search(query))
@@ -263,8 +265,36 @@ ipcMain.handle('history:all', () => listenHistory.all())
 ipcMain.handle('history:remove', (_, id: string) => listenHistory.remove(id))
 ipcMain.handle('history:clear', () => listenHistory.clear())
 app.on('before-quit', () => void listenHistory.flush())
-ipcMain.handle('playlists:get', () => playlists.get())
-ipcMain.handle('playlists:save', (_, list: Playlist[]) => playlists.set(list))
+/** Makes sure every local song in a playlist has its own copy (also upgrades older playlists). */
+let keptMigration: Promise<void> | null = null
+function keepPlaylistFiles() {
+  keptMigration ??= (async () => {
+    const list = playlists.get()
+    const missing = list.flatMap((p) => p.tracks).filter((t) => t.source === 'local' && !t.kept)
+    if (!missing.length) return
+    const kept = new Set(await keepTracks(missing.map((t) => t.id)))
+    // re-read: the list may have changed while copying
+    await playlists.set(
+      playlists.get().map((p) => ({ ...p, tracks: p.tracks.map((t) => (kept.has(t.id) && t.source === 'local' ? { ...t, kept: true } : t)) })),
+    )
+  })().finally(() => (keptMigration = null))
+  return keptMigration
+}
+function keepTracks(ids: string[]) {
+  const byId = new Map(library.state().tracks.map((t) => [t.id, t]))
+  return keptFiles.keep(
+    [...new Set(ids)].map((id) => ({ id, path: library.pathFor(id), title: byId.get(id)?.title ?? id, artist: byId.get(id)?.artist ?? '' })),
+  )
+}
+ipcMain.handle('playlists:get', async () => {
+  await keepPlaylistFiles()
+  return playlists.get()
+})
+ipcMain.handle('playlists:save', async (_, list: Playlist[]) => {
+  await playlists.set(list)
+  await keptFiles.prune(list)
+})
+ipcMain.handle('playlists:keep', (_, ids: string[]) => keepTracks(ids))
 ipcMain.handle('playlists:pickCover', async () => {
   const r = await dialog.showOpenDialog(win!, {
     title: 'Choose a playlist picture',
@@ -278,8 +308,8 @@ ipcMain.handle('playlists:pickCover', async () => {
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark'
   Menu.setApplicationMenu(null)
-  await Promise.all([library.load(), playlists.load(), spotify.load(), secrets.load(), windowState.load(), settings.load(), listenHistory.load()])
-  protocol.handle('media', (req) => handleMedia(req, library, youtube))
+  await Promise.all([library.load(), playlists.load(), keptFiles.load(), spotify.load(), secrets.load(), windowState.load(), settings.load(), listenHistory.load()])
+  protocol.handle('media', (req) => handleMedia(req, library, youtube, keptFiles))
   createWindow()
   // Pick up files added/changed while the app was closed.
   if ({ ...DEFAULT_SETTINGS, ...settings.get() }.rescanOnStartup) library.rescan(progress)

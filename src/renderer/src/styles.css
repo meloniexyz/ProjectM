@@ -1,6 +1,6 @@
 :root {
   color-scheme: dark;
-  --bg: #09090c;
+  --bg: #000000;
   --bg-1: #111116;
   --bg-2: #17171e;
   --bg-3: #1f1f28;
@@ -10,7 +10,7 @@
   --text: #ededf2;
   --text-2: #a3a3b2;
   --text-3: #6c6c7c;
-  --accent: #8b7cff;
+  --accent: #ff4d5e;
   --accent-2: #a99dff;
   --accent-ink: #0c0a18;
   --danger: #ff5c6c;
@@ -2056,6 +2056,13 @@ kbd {
 }
 .side-bottom {
   margin-top: auto;
+}
+.app-version {
+  padding: 2px 12px 0;
+  font-size: 10px;
+  color: var(--text-3);
+  opacity: 0.55;
+  user-select: none;
 }
 
 /* ---------- edit playlist dialog ---------- */

@@ -3,6 +3,7 @@ import { stat } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import type { Library } from './library'
+import type { KeptFiles } from './kept-files'
 import type { YouTubeMusic } from './sources/youtube'
 
 const MIME: Record<string, string> = {
@@ -21,12 +22,12 @@ const MIME: Record<string, string> = {
 }
 
 /**
- * media://local/<trackId>   -> the audio file of a library track
+ * media://local/<trackId>   -> a playlist's copy of a local song, else the library file
  * media://art/<hash>.<ext>  -> cached cover art
  * media://youtube/<videoId> -> proxied YouTube audio stream
  * Only files known to the library are served; arbitrary paths are never exposed.
  */
-export async function handleMedia(req: Request, library: Library, youtube: YouTubeMusic): Promise<Response> {
+export async function handleMedia(req: Request, library: Library, youtube: YouTubeMusic, kept: KeptFiles): Promise<Response> {
   const url = new URL(req.url)
   const name = decodeURIComponent(url.pathname.slice(1))
 
@@ -38,6 +39,9 @@ export async function handleMedia(req: Request, library: Library, youtube: YouTu
     }
   }
   if (url.host === 'local') {
+    // a playlist's own copy wins, so playlists don't change when the original file does
+    const copy = kept.pathFor(name)
+    if (copy && (await stat(copy).catch(() => null))) return serveFile(copy, req.headers.get('range'))
     const path = library.pathFor(name)
     if (path) return serveFile(path, req.headers.get('range'))
   } else if (url.host === 'art' && /^[a-f0-9]{16}\.(jpg|png|webp)$/.test(name)) {

@@ -105,6 +105,8 @@ const api = {
   playlists: {
     get: (): Promise<Playlist[]> => ipcRenderer.invoke('playlists:get'),
     save: (list: Playlist[]): Promise<void> => ipcRenderer.invoke('playlists:save', list),
+    /** copies local songs into the playlist files folder; resolves to the ids that have a copy */
+    keep: (ids: string[]): Promise<string[]> => ipcRenderer.invoke('playlists:keep', ids),
     /** opens a file picker; returns the stored image URL, or null if cancelled */
     pickCover: (): Promise<string | null> => ipcRenderer.invoke('playlists:pickCover'),
   },

@@ -21,6 +21,8 @@ export interface Track {
   gainDb?: number
   /** when you liked it (ms), for liked-songs lists that provide it */
   likedAt?: number
+  /** local song with its own copy in the playlist files folder (playlists only) */
+  kept?: boolean
 }
 
 export interface Playlist {
@@ -154,8 +156,8 @@ export const DEFAULT_SETTINGS: Settings = {
   hideShortClips: true,
   openAtLogin: false,
   eq: { enabled: false, bands: 7, gains: [0, 0, 0, 0, 0, 0, 0], preset: 'Flat', custom: [] },
-  theme: 'projectm',
-  accent: null,
+  theme: 'amoled',
+  accent: '#ff4d5e',
 }
 
 /** One play of a song: when, which parts were heard, and for how long. */

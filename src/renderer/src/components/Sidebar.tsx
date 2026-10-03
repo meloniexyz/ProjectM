@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { cls } from '../lib/format'
 import { createPlaylist, deletePlaylist, lib, openPlaylistEditor } from '../lib/library'
 import { useNav } from '../lib/nav'
@@ -12,6 +12,15 @@ import { LikedArt } from './AccountViews'
 import { likedCountStore } from '../lib/liked'
 import { ACCOUNT_SOURCES } from '../lib/accounts'
 import { ClockIcon, DiscIcon, HomeIcon, MusicIcon, PlusIcon, SearchIcon, SettingsIcon, SourceBadge } from './Icons'
+
+/** Tiny build label in the bottom-left corner. */
+function AppVersion() {
+  const [version, setVersion] = useState('')
+  useEffect(() => {
+    window.api.app.info().then((i) => setVersion(i.version), () => {})
+  }, [])
+  return version ? <div className="app-version">ProjectM {version}</div> : null
+}
 
 export function Sidebar() {
   const nav = useNav()
@@ -118,6 +127,7 @@ export function Sidebar() {
 
       <div className="side-section side-bottom">
         {item(v.kind === 'settings', <SettingsIcon />, 'Settings', () => nav.go({ kind: 'settings' }))}
+        <AppVersion />
       </div>
 
       {scan && (

@@ -71,7 +71,7 @@ export async function rescan() {
   apply(await api.library.rescan())
 }
 
-export const isAvailable = (t: Track, localIds: Set<string>) => t.source !== 'local' || localIds.has(t.id)
+export const isAvailable = (t: Track, localIds: Set<string>) => t.source !== 'local' || !!t.kept || localIds.has(t.id)
 
 // ---------- playlists ----------
 
@@ -82,6 +82,23 @@ function commit(playlists: Playlist[]) {
 
 const updatePlaylist = (id: string, fn: (p: Playlist) => Partial<Playlist>) =>
   commit(lib.get().playlists.map((p) => (p.id === id ? { ...p, ...fn(p), updatedAt: Date.now() } : p)))
+
+/** Gives local songs their own copy, then marks them in every playlist that has them. */
+function keepLocal(tracks: Track[]) {
+  const ids = tracks.filter((t) => t.source === 'local' && !t.kept).map((t) => t.id)
+  if (!ids.length) return
+  api.playlists.keep(ids).then((done) => {
+    const kept = new Set(done)
+    if (!kept.size) return
+    commit(
+      lib.get().playlists.map((p) =>
+        p.tracks.some((t) => t.source === 'local' && kept.has(t.id) && !t.kept)
+          ? { ...p, tracks: p.tracks.map((t) => (t.source === 'local' && kept.has(t.id) ? { ...t, kept: true } : t)) }
+          : p,
+      ),
+    )
+  })
+}
 
 export function createPlaylist(tracks: Track[] = [], name?: string) {
   const { playlists } = lib.get()
@@ -94,6 +111,7 @@ export function createPlaylist(tracks: Track[] = [], name?: string) {
     updatedAt: now,
   }
   commit([...playlists, p])
+  keepLocal(tracks)
   if (tracks.length) toast(`Added ${plural(tracks.length, 'song')} to ${p.name}`)
   return p.id
 }
@@ -105,6 +123,7 @@ export function addToPlaylist(id: string, tracks: Track[]) {
   const added = tracks.filter((t) => !existing.has(t.uid))
   if (!added.length) return toast(`Already in ${p.name}`)
   updatePlaylist(id, (p) => ({ tracks: [...p.tracks, ...added] }))
+  keepLocal(added)
   toast(`Added ${plural(added.length, 'song')} to ${p.name}`)
 }
 
