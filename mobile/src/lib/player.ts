@@ -231,7 +231,9 @@ async function load(autoplay: boolean) {
   resumeAt = 0
   resumeKey = null
   emit({ position: startAt, duration: item.track.duration, error: null, loading: true, via: null, quality: null, activeKey: null }, true)
-  // switching songs from the lock screen: keep the app awake while the next one downloads
+  // stop the previous song straight away (like Spotify) while this one gets ready; from the lock
+  // screen, keep the app awake with silence while the next one downloads
+  void nat(() => NativeAudio.pause())
   if (AppState.currentState !== 'active') void nat(() => NativeAudio.holdSilence(true))
 
   let nt: NativeTrack

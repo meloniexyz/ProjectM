@@ -92,7 +92,7 @@ final class PMPlayer {
     if type == .began {
       sendState()
     } else {
-      let opts = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt).map(AVAudioSession.InterruptionOptions.init) ?? []
+      let opts = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt).map { AVAudioSession.InterruptionOptions(rawValue: $0) } ?? []
       if opts.contains(.shouldResume) && wantsPlay {
         activateSession()
         player.play()
