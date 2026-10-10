@@ -33,12 +33,19 @@ export function bestMatch(t: MatchTarget, candidates: Track[]): Track | null {
   return scoredMatch(t, candidates)?.track ?? null
 }
 
+/** Words that mark a different version of a song (checked including the bracketed parts). */
+const VERSION = /\b(remix|rmx|edit|bootleg|cover|remake|sped[ -]?up|speed[ -]?up|slowed|nightcore|reverb|8d|live|mashup|instrumental|karaoke|acoustic|flip|vip|type beat|extended|loop)\b/gi
+const versionWords = (s: string) => new Set((s.toLowerCase().match(VERSION) ?? []).map((w) => w.replace(/[ -]/g, '')))
+
 /** Like bestMatch, with the match score (higher = closer title/artist/length). */
 export function scoredMatch(t: MatchTarget, candidates: Track[]): { track: Track; score: number } | null {
   let best: { track: Track; score: number } | null = null
+  const wanted = versionWords(t.title)
   for (const c of candidates) {
     const dur = t.duration && c.duration ? Math.abs(t.duration - c.duration) : 0
     if (dur > 15) continue
+    // a remix / sped-up / cover upload is a different recording, unless that's what we're looking for
+    if ([...versionWords(c.title)].some((w) => !wanted.has(w))) continue
     // SoundCloud uploads often put "Artist - Title" in the title field
     const title = Math.max(overlap(t.title, c.title), overlap(`${t.artist} ${t.title}`, c.title))
     const artist = Math.max(overlap(t.artist, c.artist), overlap(t.artist, c.title))
