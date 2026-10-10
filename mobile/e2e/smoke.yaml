@@ -1,0 +1,51 @@
+# End-to-end check in the iOS simulator (run by .github/workflows/ios.yml):
+# search, play a song, open the player, then run the in-app diagnostics.
+appId: com.projectm.app
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      id: "tab-search"
+    timeout: 90000
+- takeScreenshot: 01-home
+- tapOn:
+    id: "tab-search"
+- tapOn:
+    id: "search-input"
+- inputText: "daft punk one more time"
+- extendedWaitUntil:
+    visible:
+      id: "track-0"
+    timeout: 45000
+- hideKeyboard
+- takeScreenshot: 02-search
+- tapOn:
+    id: "track-0"
+- extendedWaitUntil:
+    visible:
+      id: "Pause"
+    timeout: 90000
+- takeScreenshot: 03-playing
+- tapOn:
+    id: "mini-player"
+- waitForAnimationToEnd
+- takeScreenshot: 04-player
+- scroll
+- takeScreenshot: 05-player-lyrics
+- tapOn:
+    id: "player-toggle"
+- openLink: "projectm://settings/diagnostics?run=1"
+- extendedWaitUntil:
+    visible: "Done: .*"
+    timeout: 300000
+- takeScreenshot: 06-diagnostics
+- scroll
+- takeScreenshot: 07-diagnostics-more
+- openLink: "projectm://settings"
+- waitForAnimationToEnd
+- takeScreenshot: 08-settings
+- tapOn:
+    id: "settings-quality"
+- waitForAnimationToEnd
+- takeScreenshot: 09-quality

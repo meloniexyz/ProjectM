@@ -1,0 +1,134 @@
+# Builds the iPhone app on a GitHub Mac, tests it in the iOS simulator, and produces an
+# unsigned .ipa (install it with AltStore / SideStore / Sideloadly, which sign it with your Apple ID).
+name: iOS
+
+on:
+  push:
+    branches: [main, ios-app]
+    paths:
+      - 'mobile/**'
+      - 'src/shared/**'
+      - 'src/main/lyrics.ts'
+      - 'src/main/songinfo.ts'
+      - 'src/main/sources/match.ts'
+      - 'src/renderer/src/lib/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+    inputs:
+      ipa:
+        description: 'Also build the .ipa for installing on a phone'
+        type: boolean
+        default: true
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    name: Build + test in simulator
+    runs-on: macos-26
+    timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Generate native project
+        run: npx expo prebuild --platform ios --no-install
+      - name: Install pods
+        run: cd ios && pod install
+      - name: Build (Release, simulator)
+        run: |
+          set -o pipefail
+          xcodebuild -workspace ios/ProjectM.xcworkspace -scheme ProjectM -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO \
+            build 2>&1 | tee xcodebuild.log | grep -E "error:|warning: .*ProjectMAudio|BUILD (SUCCEEDED|FAILED)|\*\* " || true
+          test -d build/Build/Products/Release-iphonesimulator/ProjectM.app
+      - name: Show build errors
+        if: failure()
+        run: grep -E "error:" -A3 xcodebuild.log | head -150 || true
+      - name: Boot simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k,v in d.items() if 'iOS' in k for x in v if x['name'].startswith('iPhone')))")
+          echo "UDID=$UDID" >> $GITHUB_ENV
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" build/Build/Products/Release-iphonesimulator/ProjectM.app
+      - name: Install Maestro
+        working-directory: .
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> $GITHUB_PATH
+      - name: Run end-to-end test
+        run: |
+          xcrun simctl spawn "$UDID" log stream --level debug --style compact --predicate 'process == "ProjectM"' > sim.log 2>&1 &
+          LOGPID=$!
+          maestro --device "$UDID" test e2e/smoke.yaml --test-output-dir e2e-out || echo "E2E_FAILED=1" >> $GITHUB_ENV
+          sleep 2
+          kill $LOGPID || true
+          DATA=$(xcrun simctl get_app_container "$UDID" com.projectm.app data)
+          cp "$DATA/Documents/.projectm/diagnostics.json" e2e-out/ 2>/dev/null || true
+          grep -E "\[diag\]" sim.log | tail -40 || true
+          grep -iE "error|exception|\[diag\]" sim.log | grep -viE "nw_|networkd|CFNetwork|boringssl" | tail -80 > sim-errors.log || true
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: simulator-results
+          path: |
+            mobile/e2e-out
+            mobile/sim.log
+            mobile/sim-errors.log
+            mobile/xcodebuild.log
+          retention-days: 7
+      - name: Fail if the end-to-end test failed
+        if: env.E2E_FAILED == '1'
+        run: exit 1
+
+  ipa:
+    name: Build .ipa for iPhone
+    if: github.event_name == 'workflow_dispatch' && inputs.ipa
+    runs-on: macos-26
+    timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npx expo prebuild --platform ios --no-install
+      - run: cd ios && pod install
+      - name: Build (Release, device, unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -workspace ios/ProjectM.xcworkspace -scheme ProjectM -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" COMPILER_INDEX_STORE_ENABLE=NO \
+            build 2>&1 | tee xcodebuild.log | grep -E "error:|BUILD (SUCCEEDED|FAILED)|\*\* " || true
+          test -d build/Build/Products/Release-iphoneos/ProjectM.app
+      - name: Package .ipa
+        run: |
+          VERSION=$(node -p "require('./app.json').expo.version")
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/ProjectM.app Payload/
+          zip -qry "ProjectM-iOS-$VERSION.ipa" Payload
+          ls -la *.ipa
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ProjectM-iOS-ipa
+          path: mobile/*.ipa
+          retention-days: 30

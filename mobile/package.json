@@ -1,0 +1,51 @@
+{
+  "name": "projectm-mobile",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
+    "babel-preset-expo": "~57.0.0",
+    "event-target-polyfill": "^0.0.4",
+    "expo": "~57.0.27",
+    "expo-clipboard": "~57.0.2",
+    "expo-constants": "~57.0.21",
+    "expo-crypto": "~57.0.3",
+    "expo-document-picker": "~57.0.3",
+    "expo-file-system": "~57.0.7",
+    "expo-font": "~57.0.4",
+    "expo-haptics": "~57.0.3",
+    "expo-image": "~57.0.5",
+    "expo-image-picker": "~57.0.20",
+    "expo-linking": "~57.0.12",
+    "expo-network": "~57.0.2",
+    "expo-router": "~57.0.25",
+    "expo-secure-store": "~57.0.4",
+    "expo-splash-screen": "~57.0.9",
+    "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.4",
+    "expo-web-browser": "~57.0.3",
+    "music-metadata": "^12.1.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-url-polyfill": "^4.0.0",
+    "react-native-web": "^0.21.2",
+    "react-native-webview": "13.16.1",
+    "web-streams-polyfill": "^4.3.0",
+    "youtubei.js": "^18.1.0"
+  },
+  "devDependencies": {
+    "@babel/plugin-transform-unicode-sets-regex": "^7.29.7",
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit"
+  },
+  "private": true
+}
