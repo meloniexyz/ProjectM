@@ -17,7 +17,7 @@ import { initAccounts } from './lib/accounts'
 import { getSettings } from './lib/settings'
 import { SettingsView } from './components/SettingsView'
 import { NavContext, ScrollContext, type Nav, type View } from './lib/nav'
-import { getPlayer, next, prev, setVolume, toggle } from './lib/player'
+import { connectTaskbarButtons, getPlayer, next, prev, setVolume, toggle } from './lib/player'
 
 const sameView = (a: View, b: View) => JSON.stringify(a) === JSON.stringify(b)
 
@@ -72,6 +72,7 @@ export function App() {
     initLibrary()
     initAccounts().then(preloadLiked)
     startListenLog()
+    return connectTaskbarButtons()
   }, [])
 
   // remember the page for "open where I left off"

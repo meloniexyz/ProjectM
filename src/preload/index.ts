@@ -101,6 +101,14 @@ const api = {
     info: (): Promise<{ version: string; dataDir: string; electron: string }> => ipcRenderer.invoke('app:info'),
     openDataFolder: (): Promise<string> => ipcRenderer.invoke('app:openDataFolder'),
     setWindowColors: (bg: string, symbol: string): Promise<void> => ipcRenderer.invoke('app:setWindowColors', bg, symbol),
+    /** play state for the taskbar preview buttons */
+    playerState: (s: { playing: boolean; hasTrack: boolean }) => ipcRenderer.send('player:state', s),
+    /** clicks on the taskbar preview buttons */
+    onPlayerCommand: (fn: (cmd: 'prev' | 'toggle' | 'next') => void) => {
+      const listener = (_: unknown, cmd: 'prev' | 'toggle' | 'next') => fn(cmd)
+      ipcRenderer.on('player:command', listener)
+      return () => ipcRenderer.removeListener('player:command', listener)
+    },
   },
   playlists: {
     get: (): Promise<Playlist[]> => ipcRenderer.invoke('playlists:get'),

@@ -139,6 +139,25 @@ export const getPlayer = () => state
 /** For code outside React that follows playback (e.g. the listening log). */
 export const subscribePlayer = subscribe
 
+/** Keeps the taskbar preview's previous / play-pause / next buttons in sync, and handles their clicks. */
+export function connectTaskbarButtons() {
+  let last = ""
+  const report = () => {
+    const s = { playing: state.playing, hasTrack: !!state.queue[state.index] }
+    const key = `${s.playing}|${s.hasTrack}`
+    if (key === last) return // the player updates several times a second; only send changes
+    last = key
+    window.api.app.playerState(s)
+  }
+  report()
+  const off = subscribe(report)
+  const offCmd = window.api.app.onPlayerCommand((cmd) => (cmd === 'prev' ? prev() : cmd === 'next' ? next() : toggle()))
+  return () => {
+    off()
+    offCmd()
+  }
+}
+
 // ---------- audio engine ----------
 // Local files, YouTube Music and SoundCloud play in this one <audio> element ("audio" engine).
 // Spotify songs play in the user's Spotify app via Spotify Connect ("spotify" engine, below).

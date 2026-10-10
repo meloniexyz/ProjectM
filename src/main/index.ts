@@ -5,6 +5,7 @@ import { JsonFile } from './json-file'
 import { Library } from './library'
 import { handleMedia } from './media'
 import { KeptFiles } from './kept-files'
+import { updateThumbar } from './thumbar'
 import { SoundCloud } from './sources/soundcloud'
 import { Spotify } from './sources/spotify'
 import type { AccountSource, StreamInfo, StreamingSource } from './sources/types'
@@ -77,6 +78,14 @@ function savedBounds() {
 
 const BG = '#000000' // default theme (AMOLED Black); the saved theme is applied as soon as the page loads
 
+/** last play state reported by the page, for the taskbar preview buttons */
+let thumbState = { playing: false, hasTrack: false }
+ipcMain.on('player:state', (_, s: { playing: boolean; hasTrack: boolean }) => {
+  if (s.playing === thumbState.playing && s.hasTrack === thumbState.hasTrack) return
+  thumbState = { playing: !!s.playing, hasTrack: !!s.hasTrack }
+  if (win?.isVisible()) updateThumbar(win, thumbState)
+})
+
 function createWindow() {
   win = new BrowserWindow({
     ...savedBounds(),
@@ -102,6 +111,8 @@ function createWindow() {
     if (!win || win.isDestroyed() || win.isVisible()) return
     if (windowState.get().maximized) win.maximize()
     win.show()
+    // taskbar preview buttons can only be added once the window is on the taskbar
+    updateThumbar(win, thumbState)
   }
   win.once('ready-to-show', reveal)
   // safety net: never stay invisible if the page is slow or fails to signal it's ready
