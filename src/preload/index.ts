@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { SyncStatus } from '../shared/sync'
 import type {
   LibraryState,
   Playlist,
@@ -117,6 +118,29 @@ const api = {
     keep: (ids: string[]): Promise<string[]> => ipcRenderer.invoke('playlists:keep', ids),
     /** opens a file picker; returns the stored image URL, or null if cancelled */
     pickCover: (): Promise<string | null> => ipcRenderer.invoke('playlists:pickCover'),
+    /** remembers a deleted playlist so synced devices delete it too */
+    deleted: (id: string): Promise<void> => ipcRenderer.invoke('playlists:deleted', id),
+    /** playlists changed by another device */
+    onChanged: (fn: (list: Playlist[]) => void) => {
+      const listener = (_: unknown, list: Playlist[]) => fn(list)
+      ipcRenderer.on('playlists:changed', listener)
+      return () => ipcRenderer.removeListener('playlists:changed', listener)
+    },
+  },
+  /** playlist sync through a private GitHub repo */
+  sync: {
+    status: (): Promise<SyncStatus> => ipcRenderer.invoke('sync:status'),
+    connect: (): Promise<void> => ipcRenderer.invoke('sync:connect'),
+    cancel: (): Promise<void> => ipcRenderer.invoke('sync:cancel'),
+    disconnect: (): Promise<void> => ipcRenderer.invoke('sync:disconnect'),
+    now: (): Promise<void> => ipcRenderer.invoke('sync:now'),
+    onStatus: (fn: (s: SyncStatus) => void) => {
+      const listener = (_: unknown, s: SyncStatus) => fn(s)
+      ipcRenderer.on('sync:status', listener)
+      return () => {
+        ipcRenderer.removeListener('sync:status', listener)
+      }
+    },
   },
 }
 

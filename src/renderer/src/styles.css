@@ -3049,3 +3049,12 @@ kbd {
 .lyrics-box {
   position: relative;
 }
+
+.sync-code {
+  font: 700 18px/1 Consolas, monospace;
+  letter-spacing: 0.12em;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--bg-3);
+  user-select: all;
+}

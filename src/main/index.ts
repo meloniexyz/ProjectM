@@ -13,6 +13,7 @@ import { getLyrics } from './lyrics'
 import { ListenHistory } from './history'
 import { getSongInfo } from './songinfo'
 import { Secrets } from './secrets'
+import { PlaylistSync } from './playlist-sync'
 import { YouTubeMusic } from './sources/youtube'
 import { DEFAULT_SETTINGS, type ListenEntry, type Playlist, type ScanProgress, type Settings, type SourceId } from '../shared/types'
 
@@ -48,6 +49,14 @@ const listenHistory = new ListenHistory(join(dataDir, 'history.json'))
 const youtube = new YouTubeMusic(join(dataDir, 'cache'), secrets)
 const spotify = new Spotify(join(dataDir, 'spotify.json'))
 const soundcloud = new SoundCloud(secrets)
+const playlistSync = new PlaylistSync(
+  secrets,
+  playlists,
+  new JsonFile<Record<string, number>>(join(dataDir, 'deleted-playlists.json'), {}),
+  (list) => keptFiles.prune(list),
+)
+playlistSync.onStatus = (s) => win?.webContents.send('sync:status', s)
+playlistSync.onPlaylists = (list) => win?.webContents.send('playlists:changed', list)
 const streaming: Partial<Record<SourceId, StreamingSource>> = { youtube, soundcloud, spotify }
 const accounts: Partial<Record<SourceId, AccountSource>> = { youtube, soundcloud, spotify }
 
@@ -301,10 +310,18 @@ ipcMain.handle('playlists:get', async () => {
   await keepPlaylistFiles()
   return playlists.get()
 })
-ipcMain.handle('playlists:save', async (_, list: Playlist[]) => {
+ipcMain.handle('playlists:save', async (_, saved: Playlist[]) => {
+  const { list, changed } = playlistSync.merge(saved)
+  if (changed) win?.webContents.send('playlists:changed', list)
   await playlists.set(list)
   await keptFiles.prune(list)
 })
+ipcMain.handle('playlists:deleted', (_, id: string) => playlistSync.markDeleted(id))
+ipcMain.handle('sync:status', () => playlistSync.status)
+ipcMain.handle('sync:connect', () => playlistSync.connect((url) => shell.openExternal(url)))
+ipcMain.handle('sync:cancel', () => playlistSync.cancelConnect())
+ipcMain.handle('sync:disconnect', () => playlistSync.disconnect())
+ipcMain.handle('sync:now', () => playlistSync.syncNow())
 ipcMain.handle('playlists:keep', (_, ids: string[]) => keepTracks(ids))
 ipcMain.handle('playlists:pickCover', async () => {
   const r = await dialog.showOpenDialog(win!, {
@@ -320,8 +337,11 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark'
   Menu.setApplicationMenu(null)
   await Promise.all([library.load(), playlists.load(), keptFiles.load(), spotify.load(), secrets.load(), windowState.load(), settings.load(), listenHistory.load()])
+  await playlistSync.load()
   protocol.handle('media', (req) => handleMedia(req, library, youtube, keptFiles))
   createWindow()
+  playlistSync.start()
+  win?.on('focus', () => playlistSync.syncNow())
   // Pick up files added/changed while the app was closed.
   if ({ ...DEFAULT_SETTINGS, ...settings.get() }.rescanOnStartup) library.rescan(progress)
 })

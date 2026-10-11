@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import type { SyncStatus } from '../../../shared/sync'
 import type { Settings, SourceId } from '../../../shared/types'
 import { ACCOUNT_SOURCES, disconnectAccount, useAccount } from '../lib/accounts'
 import { cls, plural } from '../lib/format'
@@ -183,6 +184,10 @@ export function SettingsView({ tab = 'general' }: { tab?: 'general' | 'eq' | 'th
         ))}
       </Section>
 
+      <Section title="Playlist sync">
+        <SyncRow />
+      </Section>
+
       <Section title="System">
         <Row label="Open ProjectM when Windows starts" hint="Starts with Windows, like Spotify does. Off by default.">
           <Switch on={s.openAtLogin} onChange={() => set({ openAtLogin: !s.openAtLogin })} />
@@ -286,6 +291,60 @@ function AccountRow({ source }: { source: SourceId }) {
       ) : (
         <button className="btn small primary" onClick={() => nav.go({ kind: 'source', source })}>
           Connect
+        </button>
+      )}
+    </Row>
+  )
+}
+
+const ago = (t: number) => {
+  const m = Math.round((Date.now() - t) / 60000)
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : new Date(t).toLocaleString()
+}
+
+/** Your ProjectM playlists on every PC and phone, through a private GitHub repo. */
+function SyncRow() {
+  const [st, setSt] = useState<SyncStatus | null>(null)
+  useEffect(() => {
+    window.api.sync.status().then(setSt)
+    return window.api.sync.onStatus(setSt)
+  }, [])
+  if (!st) return null
+  if (st.code)
+    return (
+      <Row label="Enter this code on GitHub" hint={`Opened ${st.code.url} in your browser. Sign in there and enter the code; this updates by itself.`}>
+        <div className="row">
+          <span className="sync-code">{st.code.userCode}</span>
+          <button className="btn small ghost" onClick={() => navigator.clipboard.writeText(st.code!.userCode).then(() => toast('Code copied'))}>
+            Copy
+          </button>
+          <button className="btn small ghost" onClick={() => window.api.sync.cancel()}>
+            Cancel
+          </button>
+        </div>
+      </Row>
+    )
+  return (
+    <Row
+      label="Sync playlists between devices"
+      hint={
+        st.error
+          ? `Couldn't sync: ${st.error}`
+          : st.connected
+            ? `Signed in as ${st.account ?? '…'} · ${st.syncing ? 'syncing…' : st.lastSync ? `synced ${ago(st.lastSync)}` : 'waiting'}. Your ProjectM playlists are kept in your private ${st.account ?? ''} projectm-sync repo and match on every PC and phone signed in to it.`
+            : 'Keeps your ProjectM playlists the same on every PC and iPhone. They are stored in a private GitHub repository only you can see.'
+      }
+    >
+      {st.connected ? (
+        <div className="row">
+          <button className="btn small ghost" disabled={st.syncing} onClick={() => window.api.sync.now()}>
+            Sync now
+          </button>
+          <ConfirmButton label="Disconnect" onConfirm={() => window.api.sync.disconnect()} />
+        </div>
+      ) : (
+        <button className="btn small primary" onClick={() => window.api.sync.connect()}>
+          Connect GitHub
         </button>
       )}
     </Row>

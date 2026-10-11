@@ -57,6 +57,8 @@ export async function initLibrary() {
   const [state, playlists] = await Promise.all([api.library.get(), api.playlists.get()])
   apply(state)
   lib.set({ ready: true, playlists })
+  // playlists edited on another device (sync)
+  api.playlists.onChanged((list) => lib.set({ playlists: list }))
 }
 
 export async function addFolder() {
@@ -153,6 +155,7 @@ export function renamePlaylist(id: string, name: string) {
 }
 
 export function deletePlaylist(id: string) {
+  api.playlists.deleted(id)
   commit(lib.get().playlists.filter((p) => p.id !== id))
 }
 
