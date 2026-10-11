@@ -1,0 +1,185 @@
+/* "Feishin" theme: the look of Feishin (github.com/jeffvli/feishin) on top of ProjectM's own layout.
+   Only active while that theme is picked (applyTheme sets <html data-skin="feishin">). Looks only - no layout
+   or behaviour changes. Inter font: SIL Open Font License, see fonts/Inter-LICENSE.txt. */
+
+@font-face {
+  font-family: 'Inter';
+  src: url('./fonts/Inter.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+[data-skin='feishin'] body {
+  font-family: Inter, 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  letter-spacing: -0.005em;
+}
+
+/* flat, edge-to-edge panes with hairline borders instead of floating rounded cards */
+[data-skin='feishin'] .app {
+  background: var(--bg);
+}
+[data-skin='feishin'] .topbar {
+  border-bottom: 1px solid rgb(255 255 255 / 6%);
+}
+[data-skin='feishin'] .sidebar,
+[data-skin='feishin'] .main,
+[data-skin='feishin'] .queue {
+  margin: 0;
+  border-radius: 0;
+}
+[data-skin='feishin'] .sidebar {
+  background: var(--bg);
+  border-right: 1px solid rgb(255 255 255 / 6%);
+  padding: 12px 10px;
+}
+[data-skin='feishin'] .main {
+  background: var(--bg-1);
+}
+[data-skin='feishin'] .queue {
+  background: var(--bg);
+  border-left: 1px solid rgb(255 255 255 / 6%);
+}
+[data-skin='feishin'] .player {
+  background: #0b0b0b;
+  border-top: 1px solid rgb(255 255 255 / 8%);
+}
+
+/* sidebar: bold sentence-case headings, bright items, subtle square-ish highlight */
+[data-skin='feishin'] .side-section h4 {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+[data-skin='feishin'] .side-item {
+  border-radius: 5px;
+  color: var(--text);
+  font-weight: 500;
+  padding: 7px 12px;
+}
+[data-skin='feishin'] .side-item:hover {
+  background: rgb(255 255 255 / 5%);
+}
+[data-skin='feishin'] .side-item.active {
+  background: rgb(255 255 255 / 8%);
+  font-weight: 600;
+}
+[data-skin='feishin'] .side-item .art {
+  border-radius: 4px;
+}
+
+/* page headers: no colour wash, big flat title */
+[data-skin='feishin'] .hero,
+[data-skin='feishin'] .home-head {
+  background: none;
+}
+[data-skin='feishin'] .hero-art {
+  border-radius: 5px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 10%), 0 12px 32px rgb(0 0 0 / 55%);
+}
+[data-skin='feishin'] .hero h1 {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+[data-skin='feishin'] .kicker {
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* buttons: rounded rectangles, white pill play button like Feishin's album header */
+[data-skin='feishin'] .btn,
+[data-skin='feishin'] .chip {
+  border-radius: 6px;
+}
+[data-skin='feishin'] .chip.on {
+  background: var(--text);
+  color: #000;
+}
+[data-skin='feishin'] .btn-play {
+  width: 64px;
+  height: 36px;
+  border-radius: 9px;
+  background: #fff;
+  color: #000;
+  box-shadow: none;
+}
+[data-skin='feishin'] .btn-play:hover:not(:disabled) {
+  transform: none;
+  background: #e2e2e2;
+}
+[data-skin='feishin'] .btn-play svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* track list: plain header, flat rows, accent title on the playing song */
+[data-skin='feishin'] .tl-head {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  border-bottom-color: rgb(255 255 255 / 8%);
+}
+[data-skin='feishin'] .tl-row {
+  border-radius: 5px;
+}
+[data-skin='feishin'] .tl-row:hover {
+  background: rgb(255 255 255 / 4%);
+}
+[data-skin='feishin'] .tl-row.selected {
+  background: rgb(255 255 255 / 8%);
+}
+[data-skin='feishin'] .tl-row.active .t {
+  color: var(--accent);
+}
+
+/* cards and artwork: small radius, no glow */
+[data-skin='feishin'] .card {
+  border-radius: 6px;
+}
+[data-skin='feishin'] .card:hover {
+  background: rgb(255 255 255 / 4%);
+}
+[data-skin='feishin'] .card-art .art {
+  border-radius: 5px;
+  box-shadow: none;
+}
+[data-skin='feishin'] .np .art {
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+/* now playing panel: framed cover, bold title, flat cards */
+[data-skin='feishin'] .np-cover {
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 12%);
+}
+[data-skin='feishin'] .np-title-row h2 {
+  font-size: 22px;
+  font-weight: 700;
+}
+[data-skin='feishin'] .np-card {
+  border-radius: 6px;
+  background: rgb(255 255 255 / 4%);
+}
+
+/* player bar: white round play button, thinner seek bar */
+[data-skin='feishin'] .ctrl-play {
+  background: #fff;
+  color: #000;
+}
+
+/* thin, quiet scrollbars */
+[data-skin='feishin'] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+[data-skin='feishin'] ::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 12%);
+  border-radius: 0;
+}
+[data-skin='feishin'] ::-webkit-scrollbar-track {
+  background: transparent;
+}

@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import './styles.css'
+import './skin-feishin.css'
 import * as player from './lib/player'
 import { curveThrough, eqResponse, finalLevel, loudnessDebug, outputMeanSquare } from './lib/loudness'
 import { getSettings, settingsStore, updateSettings } from './lib/settings'
