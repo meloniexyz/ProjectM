@@ -4,7 +4,7 @@
 import type { Playlist, Track } from './types'
 
 /** Client ID of the "ProjectM Sync" GitHub App (public, not a secret). */
-export const SYNC_CLIENT_ID = ''
+export const SYNC_CLIENT_ID = 'Iv23liQqFz94MN3pDvFa'
 export const SYNC_REPO_NAME = 'projectm-sync'
 const FILE = 'playlists.json'
 /** deleted playlists are remembered this long so other devices also delete them */
