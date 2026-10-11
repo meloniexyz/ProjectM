@@ -122,6 +122,8 @@ interface ListItem {
   album?: { name?: string }
   duration?: { seconds: number }
   thumbnails?: { url: string }[]
+  item_type?: string
+  badges?: { icon_type?: string }[]
 }
 
 /** Shape of library grid cards (MusicTwoRowItem). */
@@ -186,6 +188,8 @@ function toTrack(s: ListItem): Track | null {
     album: s.album?.name ?? 'YouTube Music',
     duration: s.duration?.seconds ?? 0,
     artwork: bigThumb(s.thumbnails?.[0]?.url),
+    // YouTube Music lists clean and explicit copies under the same title; only this badge tells them apart
+    explicit: s.item_type === 'song' ? !!s.badges?.some((b) => b.icon_type === 'MUSIC_EXPLICIT_BADGE') : undefined,
   }
 }
 

@@ -23,6 +23,8 @@ export interface MatchTarget {
   title: string
   artist: string
   duration: number
+  /** Spotify's explicit flag: prefer the uncensored copy (or the clean one, if that's what Spotify has) */
+  explicit?: boolean
 }
 
 /**
@@ -34,7 +36,7 @@ export function bestMatch(t: MatchTarget, candidates: Track[]): Track | null {
 }
 
 /** Words that mark a different version of a song (checked including the bracketed parts). */
-const VERSION = /\b(remix|rmx|edit|bootleg|cover|remake|sped[ -]?up|speed[ -]?up|slowed|nightcore|reverb|8d|live|mashup|instrumental|karaoke|acoustic|flip|vip|type beat|extended|loop)\b/gi
+const VERSION = /\b(remix|rmx|edit|bootleg|cover|remake|sped[ -]?up|speed[ -]?up|slowed|nightcore|reverb|8d|live|mashup|instrumental|karaoke|acoustic|flip|vip|type beat|extended|loop|clean|censored|edited|radio version|clean version)\b/gi
 const versionWords = (s: string) => new Set((s.toLowerCase().match(VERSION) ?? []).map((w) => w.replace(/[ -]/g, '')))
 
 /** Like bestMatch, with the match score (higher = closer title/artist/length). */
@@ -50,7 +52,9 @@ export function scoredMatch(t: MatchTarget, candidates: Track[]): { track: Track
     const title = Math.max(overlap(t.title, c.title), overlap(`${t.artist} ${t.title}`, c.title))
     const artist = Math.max(overlap(t.artist, c.artist), overlap(t.artist, c.title))
     if (artist === 0) continue // same title by someone else is a different song
-    const score = title * 2 + artist - dur / 10
+    // copies often share the exact title, so the explicit flag decides between them
+    const rating = t.explicit === undefined || c.explicit === undefined ? 0 : t.explicit === c.explicit ? 0.3 : -0.8
+    const score = title * 2 + artist - dur / 10 + rating
     if (!best || score > best.score) best = { track: c, score }
   }
   return best && best.score > 1 ? best : null

@@ -23,6 +23,8 @@ export interface Track {
   likedAt?: number
   /** local song with its own copy in the playlist files folder (playlists only) */
   kept?: boolean
+  /** explicit (uncensored) version, when the service says (Spotify, YouTube Music) */
+  explicit?: boolean
 }
 
 export interface Playlist {
