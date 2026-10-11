@@ -1,4 +1,5 @@
 import type { SourceId, StreamInfo, Track } from '../../../shared/types'
+import { localTwin } from './library'
 import { accountStore } from './accounts'
 import { useStore } from './store'
 
@@ -46,6 +47,8 @@ export const useConnections = () =>
 /** Turns a track into something the audio element can play. */
 export async function resolveStream(track: Track): Promise<StreamInfo> {
   if (track.source === 'local') {
+    // a synced playlist's song from another device: play this PC's copy of it
+    track = localTwin(track) ?? track
     const ext = ((track as { path?: string }).path ?? '').split('.').pop()?.toLowerCase() ?? ''
     const quality = ['flac', 'wav'].includes(ext) ? `${ext.toUpperCase()} · lossless` : ext ? ext.toUpperCase() : undefined
     return { url: `media://local/${encodeURIComponent(track.id)}`, kind: 'direct', gainDb: track.gainDb, quality }

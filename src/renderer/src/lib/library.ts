@@ -34,7 +34,24 @@ let hiding = getSettings().hideShortClips
 function apply(l: LibraryState) {
   scanned = l
   const tracks = hiding ? l.tracks.filter((t) => !(t.duration > 0 && t.duration < SHORT_CLIP_SECONDS)) : l.tracks
+  twins = new Map()
+  for (const t of tracks) {
+    const k = twinKey(t)
+    twins.set(k, [...(twins.get(k) ?? []), t])
+  }
   lib.set({ folders: l.folders, tracks, localIds: new Set(tracks.map((t) => t.id)) })
+}
+
+// A local song from another device (synced playlist) plays this PC's copy of the same song:
+// same title and main artist, length within 3 s. Files are told apart by path, which differs per device.
+let twins = new Map<string, Track[]>()
+const squash = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+const twinKey = (t: Track) => `${squash(t.title)}|${squash(t.artist.split(/,|&| feat\.? | ft\.? /i)[0] ?? '')}`
+
+/** This PC's own file for a local song that isn't here, if it has the same song. */
+export function localTwin(t: Track): Track | undefined {
+  if (t.source !== 'local' || t.kept || lib.get().localIds.has(t.id)) return undefined
+  return twins.get(twinKey(t))?.find((c) => !t.duration || !c.duration || Math.abs(c.duration - t.duration) <= 3)
 }
 
 settingsStore.subscribe(() => {
@@ -73,7 +90,7 @@ export async function rescan() {
   apply(await api.library.rescan())
 }
 
-export const isAvailable = (t: Track, localIds: Set<string>) => t.source !== 'local' || !!t.kept || localIds.has(t.id)
+export const isAvailable = (t: Track, localIds: Set<string>) => t.source !== 'local' || !!t.kept || localIds.has(t.id) || !!localTwin(t)
 
 // ---------- playlists ----------
 
