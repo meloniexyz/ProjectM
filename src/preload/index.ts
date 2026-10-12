@@ -78,6 +78,8 @@ const api = {
   /** play controls for Spotify Connect */
   spotify: {
     play: (id: string, positionMs?: number): Promise<void> => ipcRenderer.invoke('spotify:play', id, positionMs),
+    /** is the Spotify app open on this PC (plays nothing) */
+    appOpen: (): Promise<boolean> => ipcRenderer.invoke('spotify:appOpen'),
     pause: (): Promise<void> => ipcRenderer.invoke('spotify:pause'),
     resume: (): Promise<void> => ipcRenderer.invoke('spotify:resume'),
     seek: (ms: number): Promise<void> => ipcRenderer.invoke('spotify:seek', ms),

@@ -404,6 +404,17 @@ export class Spotify implements StreamingSource, AccountSource {
     return found.id
   }
 
+  /** Whether the Spotify app is open on this PC (checked in the background; plays nothing). */
+  async appOpen(): Promise<boolean> {
+    try {
+      await this.device()
+      return true
+    } catch (err) {
+      if (/find the spotify app/i.test(String((err as Error)?.message))) return false
+      throw err
+    }
+  }
+
   async play(id: string, positionMs = 0) {
     const device = await this.device()
     const body = JSON.stringify({ uris: [`spotify:track:${id}`], position_ms: Math.round(positionMs) })

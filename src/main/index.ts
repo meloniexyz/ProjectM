@@ -249,6 +249,7 @@ ipcMain.handle('lyrics:get', (_, t: { title: string; artist: string; album: stri
   getLyrics(t.title, t.artist, t.album, t.duration),
 )
 ipcMain.handle('spotify:play', (_, id: string, positionMs?: number) => spotify.play(id, positionMs))
+ipcMain.handle('spotify:appOpen', () => spotify.appOpen())
 ipcMain.handle('spotify:pause', () => spotify.pause())
 ipcMain.handle('spotify:resume', () => spotify.resume())
 ipcMain.handle('spotify:seek', (_, ms: number) => spotify.seek(ms))

@@ -211,12 +211,14 @@ let engine: 'audio' | 'spotify' = 'audio'
 let spotifyVolumeTimer = 0
 
 /**
- * Slider position (0..1) to gain: one smooth curve that sounds even to the ear and tops out at
- * 2x (+6 dB). Full normal volume is reached around 65%; above that it boosts, with a limiter
- * keeping peaks clean.
+ * Slider position (0..1) to gain, in decibels like the ear hears: +6 dB at the top, normal volume
+ * (0 dB) around 65%, about -23 dB at 30% and -46 dB at 10%, so the low end is properly quiet.
+ * Above 65% it boosts, with a limiter keeping peaks clean.
  */
 export function volumeGain(v: number) {
-  return 2 * Math.max(0, v) ** 1.6
+  if (v <= 0) return 0
+  const db = 6 - 66 * (1 - Math.min(1, v)) ** 2.284
+  return 10 ** (db / 20)
 }
 
 function applyVolume() {
@@ -286,7 +288,8 @@ async function load(autoplay: boolean) {
       emit({ playing: false, buffering: false })
       return
     }
-    if (getSettings().spotifyPlayback === 'alternatives' || Date.now() < spotifyUnavailableUntil) {
+    // known to be closed: go straight to YouTube Music / SoundCloud (no waiting on Spotify at song start)
+    if (getSettings().spotifyPlayback === 'alternatives' || spotifyAppOpen === false) {
       return playFallback(item.track, seq)
     }
     return spotifyStart(item.track, seq, startAt)
@@ -352,7 +355,7 @@ async function spotifyStart(track: Track, seq: number, positionSec = 0) {
     const e = cleanError(err)
     // No Spotify app to play through: use the same song from YouTube Music instead.
     if (/find the spotify app|no active device|device not found|NO_ACTIVE_DEVICE/i.test(e.message)) {
-      spotifyUnavailableUntil = Date.now() + 30_000 // re-check soon, in case you open Spotify
+      spotifyAppOpen = false // checked again in the background, mid-song (see playFallback)
       return playFallback(track, seq)
     }
     fail(track, e)
@@ -398,8 +401,27 @@ async function spotifyStart(track: Track, seq: number, positionSec = 0) {
   }, 1000)
 }
 
-let spotifyUnavailableUntil = 0
+/** Is the Spotify app open: null until known. Only checked mid-song, never while a song is starting. */
+let spotifyAppOpen: boolean | null = null
 let fallbackNoticeShown = false
+let songsSinceSpotifyCheck = 0
+
+/**
+ * While Spotify songs play from YouTube Music / SoundCloud, look for the Spotify app every
+ * second song, a little way into it, so opening Spotify takes over from the next song on.
+ */
+function checkSpotifyLater(seq: number, duration: number) {
+  if (getSettings().spotifyPlayback === 'alternatives' || ++songsSinceSpotifyCheck < 2) return
+  const delay = Math.min(30, Math.max(5, (duration || 60) * 0.3)) * 1000
+  setTimeout(() => {
+    if (seq !== loadSeq) return // skipped before then: the next song checks instead
+    songsSinceSpotifyCheck = 0
+    sp.appOpen().then(
+      (open) => (spotifyAppOpen = open),
+      () => {}, // offline or signed out: keep what we knew
+    )
+  }, delay)
+}
 
 /** Plays a Spotify song from YouTube Music (same artist/title/length) through the audio engine. */
 async function playFallback(track: Track, seq: number) {
@@ -425,11 +447,12 @@ async function playFallback(track: Track, seq: number) {
   if (seq !== loadSeq || !(await attach(stream, seq, track))) return
   emit({ activeKey: state.queue[state.index]?.key ?? null, position: 0 }, false)
   audio.play().catch(() => {})
+  checkSpotifyLater(seq, track.duration)
 }
 
 /** Lets the next Spotify song try the Spotify app again (e.g. after the user opened it). */
 export function retrySpotifyApp() {
-  spotifyUnavailableUntil = 0
+  spotifyAppOpen = null
 }
 
 function spotifyToggle() {
