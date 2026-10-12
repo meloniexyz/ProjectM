@@ -136,12 +136,18 @@ export async function finishDeviceLogin(code: DeviceCode, isCancelled: () => boo
   while (Date.now() < until) {
     await new Promise((r) => setTimeout(r, interval * 1000))
     if (isCancelled()) throw new Error('Cancelled')
-    const res = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: form({ client_id: clientId, device_code: code.device_code, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }),
-    })
-    const json = (await res.json()) as { access_token?: string; error?: string; error_description?: string; interval?: number }
+    let json: { access_token?: string; error?: string; error_description?: string; interval?: number }
+    try {
+      const res = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form({ client_id: clientId, device_code: code.device_code, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }),
+      })
+      json = await res.json()
+    } catch {
+      // connection dropped (on iPhone: the app was paused while you entered the code in Safari) - keep waiting
+      continue
+    }
     if (json.access_token) return json.access_token
     if (json.error === 'authorization_pending') continue
     if (json.error === 'slow_down') {
@@ -264,13 +270,21 @@ export async function syncOnce(
   apply: (r: MergeResult) => void,
   device: string,
 ): Promise<MergeResult> {
+  let dropped = 0
   for (let attempt = 0; attempt < 4; attempt++) {
-    const { doc, sha } = await gh.read()
-    const mine = local()
-    const result = mergePlaylists(mine.playlists, mine.deleted, doc)
-    if (result.upload && !(await gh.write(result.upload, sha, device))) continue
-    apply(result)
-    return result
+    try {
+      const { doc, sha } = await gh.read()
+      const mine = local()
+      const result = mergePlaylists(mine.playlists, mine.deleted, doc)
+      if (result.upload && !(await gh.write(result.upload, sha, device))) continue
+      apply(result)
+      return result
+    } catch (e) {
+      // a dropped connection (common right after a phone wakes the app) gets two more tries
+      if (e instanceof SyncError || ++dropped > 2) throw e
+      attempt--
+      await new Promise((r) => setTimeout(r, 2000 * dropped))
+    }
   }
   throw new SyncError('Another device kept saving at the same time, try again')
 }
