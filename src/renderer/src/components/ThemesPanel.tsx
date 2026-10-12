@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react'
 import { cls } from '../lib/format'
 import { updateSettings, useSettings } from '../lib/settings'
 import { ACCENT_SWATCHES, THEMES, themeById, type Theme } from '../lib/themes'
+import { LOGO_VARIANTS, logoUrl } from '../lib/logos'
 
 /** Settings → Themes: pick a colour theme, optionally with your own accent colour. */
 export function ThemesPanel() {
@@ -17,6 +18,19 @@ export function ThemesPanel() {
         <div className="theme-grid">
           {THEMES.map((t) => (
             <ThemeCard key={t.id} theme={t} selected={t.id === current.id} accent={s.accent} onPick={() => updateSettings({ theme: t.id })} />
+          ))}
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <h2>Logo</h2>
+        <p className="settings-hint">The app icon (window, taskbar, desktop and Start menu) and the logo at the top left. It takes your accent colour, so pick the colour below.</p>
+        <div className="logo-grid">
+          {LOGO_VARIANTS.map((v) => (
+            <button key={v.id} className={cls('logo-choice', s.logo === v.id && 'on')} onClick={() => updateSettings({ logo: v.id })} aria-pressed={s.logo === v.id}>
+              <img src={logoUrl(v.id, accent, current.id)} alt="" />
+              {v.name}
+            </button>
           ))}
         </div>
       </section>

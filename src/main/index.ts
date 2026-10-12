@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, protocol, screen, shell } from 'electron'
-import { writeFileSync } from 'node:fs'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, protocol, screen, shell } from 'electron'
+import { existsSync, writeFileSync } from 'node:fs'
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { JsonFile } from './json-file'
 import { Library } from './library'
@@ -104,7 +105,12 @@ function createWindow() {
     title: 'ProjectM',
     backgroundColor: windowState.get().bg ?? BG,
     // the installed .exe carries its own icon; in development use the one from build/
-    ...(app.isPackaged ? {} : { icon: join(__dirname, '../../build/icon.png') }),
+    // the logo picked in Themes (saved by the window), else the .exe's own icon / build/ in development
+    ...(existsSync(join(dataDir, 'app-icon.png'))
+      ? { icon: join(dataDir, 'app-icon.png') }
+      : app.isPackaged
+        ? {}
+        : { icon: join(__dirname, '../../build/icon.png') }),
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: windowState.get().bg ?? BG, symbolColor: windowState.get().symbol ?? '#a3a3b2', height: 40 },
     webPreferences: {
@@ -264,6 +270,66 @@ ipcMain.handle('settings:set', async (_, patch: Partial<Settings>) => {
 })
 ipcMain.handle('app:info', () => ({ version: app.getVersion(), dataDir, electron: process.versions.electron }))
 ipcMain.handle('app:openDataFolder', () => shell.openPath(dataDir))
+ipcMain.handle('app:setIcon', async (_, dataUrl: string) => {
+  const image = nativeImage.createFromDataURL(dataUrl)
+  if (image.isEmpty()) return
+  win?.setIcon(image)
+  await writeFile(join(dataDir, 'app-icon.png'), image.toPNG()) // used from the next launch's first frame
+  await updateShortcutIcons(image).catch((e) => console.warn('[icon] shortcuts', e))
+})
+
+/** An .ico holding the image at the sizes Windows uses (PNG-compressed entries). */
+function toIco(image: Electron.NativeImage) {
+  const pngs = [16, 24, 32, 48, 64, 256].map((size) => ({ size, data: image.resize({ width: size, height: size, quality: 'best' }).toPNG() }))
+  const header = Buffer.alloc(6 + 16 * pngs.length)
+  header.writeUInt16LE(0, 0)
+  header.writeUInt16LE(1, 2)
+  header.writeUInt16LE(pngs.length, 4)
+  let offset = header.length
+  pngs.forEach(({ size, data }, i) => {
+    const e = 6 + i * 16
+    header.writeUInt8(size >= 256 ? 0 : size, e)
+    header.writeUInt8(size >= 256 ? 0 : size, e + 1)
+    header.writeUInt16LE(1, e + 4)
+    header.writeUInt16LE(32, e + 6)
+    header.writeUInt32LE(data.length, e + 8)
+    header.writeUInt32LE(offset, e + 12)
+    offset += data.length
+  })
+  return Buffer.concat([header, ...pngs.map((p) => p.data)])
+}
+
+/**
+ * Points ProjectM's desktop, Start menu and pinned-taskbar shortcuts at the chosen logo. Only
+ * shortcuts that open this ProjectM.exe are touched. The .ico gets a new name each time so
+ * Windows doesn't keep showing its cached old icon.
+ */
+async function updateShortcutIcons(image: Electron.NativeImage) {
+  if (!app.isPackaged) return
+  const icons = join(dataDir, 'icons')
+  await mkdir(icons, { recursive: true })
+  const ico = join(icons, `projectm-${Date.now().toString(36)}.ico`)
+  await writeFile(ico, toIco(image))
+  const roaming = app.getPath('appData')
+  const links = [
+    join(app.getPath('desktop'), 'ProjectM.lnk'),
+    join(roaming, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'ProjectM.lnk'),
+    join(roaming, 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'TaskBar', 'ProjectM.lnk'),
+  ]
+  const exe = process.execPath.toLowerCase()
+  for (const link of links) {
+    try {
+      if (!existsSync(link)) continue
+      const details = shell.readShortcutLink(link)
+      if (details.target.toLowerCase() !== exe) continue
+      shell.writeShortcutLink(link, 'update', { ...details, icon: ico, iconIndex: 0 })
+    } catch {
+      // can't read or write this shortcut: leave it
+    }
+  }
+  // older icon files are no longer used by any shortcut
+  for (const f of await readdir(icons)) if (join(icons, f) !== ico) await rm(join(icons, f), { force: true })
+}
 ipcMain.handle('app:setWindowColors', (_, bg: string, symbol: string) => {
   if (!win || win.isDestroyed()) return
   win.setBackgroundColor(bg)

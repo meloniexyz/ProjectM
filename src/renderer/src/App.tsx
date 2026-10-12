@@ -16,6 +16,7 @@ import { initLibrary } from './lib/library'
 import { initAccounts } from './lib/accounts'
 import { getSettings } from './lib/settings'
 import { SettingsView } from './components/SettingsView'
+import { useLogo } from './lib/logos'
 import { NavContext, ScrollContext, type Nav, type View } from './lib/nav'
 import { connectTaskbarButtons, getPlayer, next, prev, setVolume, toggle } from './lib/player'
 
@@ -37,6 +38,7 @@ function startView(): View {
 }
 
 export function App() {
+  const logo = useLogo()
   const [stack, setStack] = useState<View[]>([startView()])
   const [panel, setPanel] = useState<'queue' | 'nowPlaying' | null>(() => {
     try {
@@ -119,7 +121,7 @@ export function App() {
               <ChevronLeftIcon size={18} />
             </button>
             <div className="brand">
-              <span className="brand-mark" />
+              <img className="brand-logo" src={logo} alt="" />
               ProjectM
             </div>
           </header>

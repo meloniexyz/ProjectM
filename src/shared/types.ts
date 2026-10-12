@@ -146,6 +146,8 @@ export interface Settings {
   theme: string
   /** custom accent colour on top of the theme, or null to use the theme's own */
   accent: string | null
+  /** logo style in the theme's colour (app icon and top-left logo), see renderer/lib/logos.ts */
+  logo: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -160,6 +162,7 @@ export const DEFAULT_SETTINGS: Settings = {
   eq: { enabled: false, bands: 7, gains: [0, 0, 0, 0, 0, 0, 0], preset: 'Flat', custom: [] },
   theme: 'amoled',
   accent: '#ff4d5e',
+  logo: 'mark-onsurface',
 }
 
 /** One play of a song: when, which parts were heard, and for how long. */

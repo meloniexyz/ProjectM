@@ -104,6 +104,8 @@ const api = {
     info: (): Promise<{ version: string; dataDir: string; electron: string }> => ipcRenderer.invoke('app:info'),
     openDataFolder: (): Promise<string> => ipcRenderer.invoke('app:openDataFolder'),
     setWindowColors: (bg: string, symbol: string): Promise<void> => ipcRenderer.invoke('app:setWindowColors', bg, symbol),
+    /** window / taskbar icon, as a PNG data URL */
+    setIcon: (dataUrl: string): Promise<void> => ipcRenderer.invoke('app:setIcon', dataUrl),
     /** play state for the taskbar preview buttons */
     playerState: (s: { playing: boolean; hasTrack: boolean }) => ipcRenderer.send('player:state', s),
     /** clicks on the taskbar preview buttons */

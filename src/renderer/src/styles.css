@@ -126,11 +126,10 @@ p {
   font-size: 13px;
   letter-spacing: 0.02em;
 }
-.brand-mark {
-  width: 16px;
-  height: 16px;
-  border-radius: 5px;
-  background: linear-gradient(135deg, var(--accent), #ff7ab6);
+.brand-logo {
+  width: 20px;
+  height: 20px;
+  display: block;
 }
 .nav-btn {
   width: 28px;
@@ -3057,4 +3056,34 @@ kbd {
   border-radius: 6px;
   background: var(--bg-3);
   user-select: all;
+}
+
+/* Themes -> Logo: the theme's logo in each style */
+.logo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 12px;
+}
+.logo-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 8px 10px;
+  border-radius: 12px;
+  background: var(--bg-2);
+  border: 2px solid transparent;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.logo-choice img {
+  width: 64px;
+  height: 64px;
+}
+.logo-choice:hover {
+  background: var(--bg-3);
+}
+.logo-choice.on {
+  border-color: var(--accent);
+  color: var(--text);
 }
