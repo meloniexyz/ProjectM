@@ -5,7 +5,7 @@
 - [x] 1.1 Create the repo `meloniexyz/projectm-server` (Worker in TypeScript, wrangler config, D1 database, KV namespace, daily cron) and verify `wrangler deploy` succeeds after the owner's one-time `wrangler login`
 - [x] 1.2 Write the D1 migrations (accounts, sessions, devices, login_attempts, documents, covers, relay) and verify `wrangler d1 migrations apply` runs on a fresh local database and the deployed one
 - [x] 1.3 Write the shared key module (account key, PBKDF2 login/wrap keys, AES-GCM wrap/unwrap, recovery code) and verify unit tests: a wrapped key unwraps with the right password and recovery code, and fails with wrong ones
-- [ ] 1.4 Measure PBKDF2 and AES-GCM speed under Hermes in the iOS simulator in CI (diagnostics check) and verify 310k iterations take under 1.5 s or record the chosen count; document it in design.md
+- [x] 1.4 Measure PBKDF2 and AES-GCM speed under Hermes in the iOS simulator in CI (diagnostics check) and verify 310k iterations take under 1.5 s or record the chosen count; document it in design.md
 - [x] 1.5 Implement sign-up, log-in (with the same message for a wrong email or password, plus a 10-in-15-minutes limit), log-out, session check, device list and device removal, and verify with an API test script against the local Worker covering every account-sign-in scenario
 - [x] 1.6 Implement new password from a logged-in device (key proof, no old password), recovery-code reset, and owner-allowed reset (`npm run allow-reset`), each re-wrapping or replacing the account key and revoking other sessions; verify with the API test script that data survives all three and platform sign-ins survive the first two
 - [x] 1.7 Implement document GET/PUT with versions (409 on conflict) and verify with the API test that two clients writing at once both converge
@@ -22,11 +22,11 @@
 
 ## 3. ProjectMobile (iOS) accounts + playlists (stage 1)
 
-- [ ] 3.1 Copy the shared account client to `src/core` (identical file) and verify `npx tsc --noEmit` and the iOS bundle build
-- [ ] 3.2 Replace `src/lib/sync.ts` with account sync (session and account key in the keychain, sync on change, app foreground and every 2 minutes) and verify a diagnostics check that signs up a throwaway account in CI, syncs a playlist and deletes the account
-- [ ] 3.3 Add Settings → Account and the first-run sheet, mirroring the PC, and verify with Maestro e2e steps (open Account, sign-up form validation) and screenshots
-- [ ] 3.4 Sync custom covers and migrate off GitHub sync, as on PC, and verify with the diagnostics check above extended to a cover
-- [ ] 3.5 Cross-device check: log the PC dev app and the iPhone simulator into the same test account, edit playlists on both, and verify both end with the same playlists
+- [x] 3.1 Copy the shared account client to `src/core` (identical file) and verify `npx tsc --noEmit` and the iOS bundle build
+- [x] 3.2 Replace `src/lib/sync.ts` with account sync (session and account key in the keychain, sync on change, app foreground and every 2 minutes) and verify a diagnostics check that signs up a throwaway account in CI, syncs a playlist and deletes the account
+- [x] 3.3 Add Settings → Account and the first-run sheet, mirroring the PC, and verify with Maestro e2e steps (open Account, sign-up form validation) and screenshots
+- [x] 3.4 Sync custom covers and migrate off GitHub sync, as on PC, and verify with the diagnostics check above extended to a cover
+- [x] 3.5 Cross-device check: log the PC dev app and the iPhone simulator into the same test account, edit playlists on both, and verify both end with the same playlists
 
 ## 4. Stage 1 release
 

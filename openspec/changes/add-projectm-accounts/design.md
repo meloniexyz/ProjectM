@@ -48,7 +48,7 @@ Why: this lets a new device unlock sign-ins with just email + password, and make
 
 Alternative considered: a separate sync password. Rejected as more to remember for the same protection.
 
-WebCrypto is in Workers and Electron. On iOS, PBKDF2 and AES-GCM come from `expo-crypto` / a small JS implementation if it lacks them. **Task 1.4** verifies Hermes speed: 310k iterations must take under 1.5 s on an iPhone, or a lower iteration count is recorded in the account so each account keeps its own.
+Where it runs: WebCrypto in the Worker; on Windows, the pure-JS PBKDF2 from `@noble` (about 0.7 s for 310k rounds). On iPhone, JavaScript PBKDF2 took about 30 s in the simulator, so ProjectMobile plugs in iOS's own CommonCrypto PBKDF2 through its native module (`setPbkdf2`). That takes **70 ms** for 310k rounds (measured in CI, task 1.4). A diagnostics check confirms native and JavaScript give identical keys, so logins match across devices.
 
 ### 3. Sessions
 - Login returns a random session token. The server stores a hash of it, along with the device id, name, platform and last seen.
@@ -136,5 +136,4 @@ Screens:
 
 ## Open Questions
 
-- Exact PBKDF2 iteration count on iPhone (measured in task 1.4; doesn't change the design).
 - The account limit for the server (for example, closed sign-up with an invite code) can be added later without changing the apps' flow.
