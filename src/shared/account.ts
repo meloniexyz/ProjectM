@@ -52,10 +52,14 @@ let server = ACCOUNT_SERVER
 /** For tests: point the client at a local server. */
 export const setAccountServer = (url: string) => (server = url)
 
+// the platform's fetch; ProjectMobile passes expo/fetch, which can send raw bytes (cover uploads)
+let http: typeof fetch = (...args) => fetch(...args)
+export const setAccountFetch = (f: typeof fetch) => (http = f)
+
 async function call<T>(method: string, path: string, body?: unknown, token?: string): Promise<T> {
   let res: Response
   try {
-    res = await fetch(`${server}${path}`, {
+    res = await http(`${server}${path}`, {
       method,
       headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -188,7 +192,7 @@ export const COVER_PREFIX = 'projectm-cover:'
 export async function uploadCover(s: AccountSession, bytes: Uint8Array, type: 'image/jpeg' | 'image/png' | 'image/webp') {
   const body = new Uint8Array(bytes) // a plain ArrayBuffer-backed copy for fetch
   const hash = [...sha256(body)].map((b) => b.toString(16).padStart(2, '0')).join('')
-  const res = await fetch(`${server}/v1/covers/${hash}`, { method: 'PUT', headers: { Authorization: `Bearer ${s.token}`, 'Content-Type': type }, body })
+  const res = await http(`${server}/v1/covers/${hash}`, { method: 'PUT', headers: { Authorization: `Bearer ${s.token}`, 'Content-Type': type }, body })
   if (!res.ok) {
     const d = (await res.json().catch(() => ({}))) as { error?: string; message?: string }
     throw new AccountError(res.status, d.error ?? 'server_error', d.message ?? `Cover upload failed (${res.status})`)
@@ -198,7 +202,7 @@ export async function uploadCover(s: AccountSession, bytes: Uint8Array, type: 'i
 
 export async function downloadCover(s: AccountSession, ref: string): Promise<{ bytes: Uint8Array; type: string } | null> {
   const hash = ref.slice(COVER_PREFIX.length)
-  const res = await fetch(`${server}/v1/covers/${hash}`, { headers: { Authorization: `Bearer ${s.token}` } })
+  const res = await http(`${server}/v1/covers/${hash}`, { headers: { Authorization: `Bearer ${s.token}` } })
   if (res.status === 404) return null
   if (!res.ok) throw new AccountError(res.status, res.status === 401 ? 'signed_out' : 'server_error', `Cover download failed (${res.status})`)
   return { bytes: new Uint8Array(await res.arrayBuffer()), type: res.headers.get('Content-Type') ?? 'image/jpeg' }
