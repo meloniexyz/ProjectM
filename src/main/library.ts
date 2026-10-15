@@ -205,7 +205,7 @@ export class Library {
   }
 
   /** Stores cover art once per unique image, keyed by content hash. */
-  private async saveArt(data: Uint8Array, ext: string) {
+  async saveArt(data: Uint8Array, ext: string) {
     const name = `${hash(data)}.${ext}`
     if (!this.knownArt.has(name)) {
       this.knownArt.add(name)

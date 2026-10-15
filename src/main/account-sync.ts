@@ -18,6 +18,14 @@ export interface ProjectMAccountStatus {
   needsLogin?: boolean
 }
 
+/** Reading and storing playlist cover images on this PC (media://art/...). */
+export interface CoverStore {
+  /** a cover picked from files, shrunk to a small JPEG for uploading; null if it's gone */
+  forUpload(url: string): Promise<Uint8Array | null>
+  /** saves a downloaded cover; returns its media://art/ address */
+  save(bytes: Uint8Array, type: string): Promise<string>
+}
+
 const SESSION = 'projectm-account'
 /** the old GitHub playlist sync's token (ProjectM 1.0.12-1.0.15), removed on first login */
 const GITHUB_TOKEN = 'github-sync'
@@ -38,11 +46,71 @@ export class AccountSync {
     private readonly playlists: JsonFile<Playlist[]>,
     private readonly deleted: JsonFile<Record<string, number>>,
     private readonly deviceFile: JsonFile<{ id?: string }>,
+    /** local cover address <-> uploaded cover (projectm-cover:<sha256>) */
+    private readonly coverMap: JsonFile<Record<string, string>>,
+    private readonly covers: CoverStore,
     private readonly afterApply: (list: Playlist[]) => void,
   ) {}
 
   async load() {
-    await Promise.all([this.deleted.load(), this.deviceFile.load()])
+    await Promise.all([this.deleted.load(), this.deviceFile.load(), this.coverMap.load()])
+  }
+
+  // ---------- covers picked from files ----------
+
+  /** Uploads covers picked on this PC that the account doesn't have yet. */
+  private async uploadCovers(s: AccountSession) {
+    const map = { ...this.coverMap.get() }
+    const touched = new Set<string>()
+    for (const p of this.playlists.get()) {
+      if (!p.cover?.startsWith('media://art/') || map[p.cover]) continue
+      const bytes = await this.covers.forUpload(p.cover)
+      if (!bytes) continue
+      const ref = await account.uploadCover(s, bytes, 'image/jpeg')
+      map[p.cover] = ref
+      map[ref] = p.cover
+      touched.add(p.id)
+    }
+    if (!touched.size) return
+    this.coverMap.set(map)
+    // the account's copy of these playlists gets the cover: count them as changed so it's sent
+    const now = Date.now()
+    const list = this.playlists.get().map((p) => (touched.has(p.id) ? { ...p, updatedAt: now } : p))
+    this.playlists.set(list)
+    this.onPlaylists(list)
+  }
+
+  /** Playlists as the account sees them: local cover files replaced by their uploaded copies. */
+  private outgoing(list: Playlist[]) {
+    const map = this.coverMap.get()
+    return list.map((p) => (p.cover && map[p.cover]?.startsWith(account.COVER_PREFIX) ? { ...p, cover: map[p.cover] } : p))
+  }
+
+  /** Playlists from the account: uploaded covers become local files (downloaded once). */
+  private async incoming(list: Playlist[], s: AccountSession) {
+    const map = { ...this.coverMap.get() }
+    let changed = false
+    const out: Playlist[] = []
+    for (const p of list) {
+      if (!p.cover?.startsWith(account.COVER_PREFIX)) {
+        out.push(p)
+        continue
+      }
+      let local = map[p.cover]
+      if (!local) {
+        const got = await account.downloadCover(s, p.cover).catch(() => null)
+        if (got) {
+          local = await this.covers.save(got.bytes, got.type)
+          map[p.cover] = local
+          map[local] = p.cover
+          changed = true
+        }
+      }
+      // not downloaded yet: keep the reference so it isn't lost; the mosaic shows meanwhile
+      out.push(local ? { ...p, cover: local } : p)
+    }
+    if (changed) this.coverMap.set(map)
+    return out
   }
 
   start() {
@@ -200,15 +268,17 @@ export class AccountSync {
     if (!s) return
     this.set({ syncing: true })
     try {
-      const r = await this.guard(account.syncPlaylists(s, () => ({ playlists: this.playlists.get(), deleted: this.deleted.get() })))
+      await this.guard(this.uploadCovers(s))
+      const r = await this.guard(account.syncPlaylists(s, () => ({ playlists: this.outgoing(this.playlists.get()), deleted: this.deleted.get() })))
       // the person may have edited while we were online: merge their latest on top
       const online: SyncDoc = { v: 1, updatedAt: 0, playlists: r.playlists, deleted: r.deleted }
-      const m = mergePlaylists(this.playlists.get(), this.deleted.get(), online)
+      const m = mergePlaylists(this.outgoing(this.playlists.get()), this.deleted.get(), online)
       this.deleted.set(m.deleted)
       if (m.localChanged) {
-        this.playlists.set(m.playlists)
-        this.afterApply(m.playlists)
-        this.onPlaylists(m.playlists)
+        const list = await this.incoming(m.playlists, s)
+        this.playlists.set(list)
+        this.afterApply(list)
+        this.onPlaylists(list)
       }
       // something newer than what was uploaded: send it next round
       if (m.upload) this.again = true

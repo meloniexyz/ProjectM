@@ -17,8 +17,8 @@
 - [x] 2.1 Add the account client to `src/shared` (API calls, keys, document sync loop reusing `mergePlaylists`) and verify unit tests for playlist merge through the new transport
 - [x] 2.2 Replace `src/main/playlist-sync.ts` with an account sync service (session and account key in DPAPI `Secrets`, sync on change, focus and every 2 minutes, retry on dropped connections) and verify in the dev app with test data that a playlist edit reaches the server within 5 s
 - [x] 2.3 Add Settings → Account (sign up, log in, recovery code screen, status, devices, change password, recover, log out) and a skippable first-run sheet, and verify each account-sign-in scenario by hand in the dev app with screenshots
-- [ ] 2.4 Sync custom covers picked from files (upload once, `projectm-cover:` reference, download and cache on other devices) and verify a cover set in one test profile shows in a second one
-- [ ] 2.5 Migrate off GitHub sync on first login (merge local playlists into the account, delete the GitHub token, remove the Playlist sync section) and verify with a test profile that had GitHub sync on
+- [x] 2.4 Sync custom covers picked from files (upload once, `projectm-cover:` reference, download and cache on other devices) and verify a cover set in one test profile shows in a second one
+- [x] 2.5 Migrate off GitHub sync on first login (merge local playlists into the account, delete the GitHub token, remove the Playlist sync section) and verify with a test profile that had GitHub sync on
 
 ## 3. ProjectMobile (iOS) accounts + playlists (stage 1)
 

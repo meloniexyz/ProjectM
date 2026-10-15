@@ -32,12 +32,14 @@ export interface SyncStatus {
 // ---------- merging ----------
 
 const isWeb = (u?: string) => !!u && /^https?:\/\//.test(u)
+/** a cover uploaded to the account (projectm-cover:<sha256>, see account.ts) travels like a web image */
+const isShared = (u?: string) => isWeb(u) || (!!u && u.startsWith('projectm-cover:'))
 
 /** What goes online: device-only bits (local cover files, kept copies) are left out. */
 function forUpload(p: Playlist): Playlist {
   return {
     ...p,
-    cover: isWeb(p.cover) ? p.cover : undefined,
+    cover: isShared(p.cover) ? p.cover : undefined,
     tracks: p.tracks.map((t) => {
       const { kept: _kept, ...rest } = t
       return isWeb(rest.artwork) ? rest : { ...rest, artwork: undefined }
@@ -50,7 +52,7 @@ function fromRemote(remote: Playlist, local?: Playlist): Playlist {
   const mine = new Map<string, Track>((local?.tracks ?? []).map((t) => [t.uid, t]))
   return {
     ...remote,
-    cover: remote.cover ?? (local?.cover && !isWeb(local.cover) ? local.cover : undefined),
+    cover: remote.cover ?? (local?.cover && !isShared(local.cover) ? local.cover : undefined),
     tracks: remote.tracks.map((t) => {
       const m = mine.get(t.uid)
       return m ? { ...t, artwork: t.artwork ?? m.artwork, kept: m.kept } : t

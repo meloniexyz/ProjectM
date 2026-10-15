@@ -58,6 +58,20 @@ const accountSync = new AccountSync(
   playlists,
   new JsonFile<Record<string, number>>(join(dataDir, 'deleted-playlists.json'), {}),
   new JsonFile<{ id?: string }>(join(dataDir, 'device.json'), {}),
+  new JsonFile<Record<string, string>>(join(dataDir, 'cover-map.json'), {}),
+  {
+    async forUpload(url) {
+      const name = decodeURIComponent(new URL(url).pathname.slice(1))
+      if (!/^[a-f0-9]{16}\.(jpg|png|webp)$/.test(name)) return null
+      const image = nativeImage.createFromPath(join(library.artDir, name))
+      if (image.isEmpty()) return null
+      const { width, height } = image.getSize()
+      const scale = Math.min(1, 512 / Math.max(width, height))
+      const small = scale < 1 ? image.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'best' }) : image
+      return new Uint8Array(small.toJPEG(85))
+    },
+    save: (bytes, type) => library.saveArt(bytes, type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg'),
+  },
   (list) => keptFiles.prune(list),
 )
 accountSync.onStatus = (s) => win?.webContents.send('pmaccount:status', s)

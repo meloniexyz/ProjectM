@@ -48,7 +48,8 @@ export function Artwork(props: { src?: string; size?: number; className?: string
 
 /** 2x2 mosaic of the first four distinct covers, like most music apps do for playlists. */
 export function PlaylistArt({ playlist, size, className }: { playlist: Playlist; size?: number; className?: string }) {
-  if (playlist.cover) return <Artwork src={playlist.cover} size={size} className={className} />
+  // a cover from another device that hasn't downloaded yet (projectm-cover:...) falls back to the mosaic
+  if (playlist.cover && !playlist.cover.startsWith('projectm-cover:')) return <Artwork src={playlist.cover} size={size} className={className} />
   const covers = [...new Set(playlist.tracks.map((t) => t.artwork).filter(Boolean))] as string[]
   if (covers.length < 4) return <Artwork src={covers[0]} size={size} className={className} />
   return (
