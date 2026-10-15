@@ -30,7 +30,7 @@
 
 ## 4. Stage 1 release
 
-- [ ] 4.1 Release ProjectM 1.1.0 and ProjectMobile 1.4.0 (version bumps, release notes, GitHub releases) and verify both releases have their installers and the iOS CI is green
+- [x] 4.1 Release ProjectM 1.1.0 and ProjectMobile 1.4.0 (version bumps, release notes, GitHub releases) and verify both releases have their installers and the iOS CI is green
 
 ## 5. Look, sound and history sync (stage 2)
 
