@@ -11,6 +11,8 @@ import { NowPlaying } from './components/NowPlaying'
 import { HistoryView } from './components/HistoryView'
 import { startListenLog } from './lib/listenLog'
 import { EditPlaylistHost } from './components/EditPlaylist'
+import { AccountDialogHost } from './components/AccountDialog'
+import { accountStore, initAccount, openAccountDialog, shouldPromptAccount } from './lib/account'
 import { AlbumsView, AlbumView, PlaylistView, SearchView, SongsView, SourceView } from './components/Views'
 import { initLibrary } from './lib/library'
 import { initAccounts } from './lib/accounts'
@@ -73,8 +75,17 @@ export function App() {
   useEffect(() => {
     initLibrary()
     initAccounts().then(preloadLiked)
+    initAccount()
+    // first launch: offer to log in or create a ProjectM account (skippable, asked once)
+    const prompt = setTimeout(() => {
+      if (shouldPromptAccount() && !accountStore.get().loggedIn) openAccountDialog('login')
+    }, 1200)
     startListenLog()
-    return connectTaskbarButtons()
+    const disconnect = connectTaskbarButtons()
+    return () => {
+      clearTimeout(prompt)
+      disconnect()
+    }
   }, [])
 
   // remember the page for "open where I left off"
@@ -136,6 +147,7 @@ export function App() {
           )}
           <PlayerBar panel={panel} onTogglePanel={togglePanel} />
           <EditPlaylistHost />
+          <AccountDialogHost />
           <ContextMenuHost />
           <Toasts />
         </div>

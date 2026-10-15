@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import type { SyncStatus } from '../../../shared/sync'
+import type { AccountDevice } from '../../../shared/account'
+import { accountError, openAccountDialog, useProjectMAccount } from '../lib/account'
 import type { Settings, SourceId } from '../../../shared/types'
 import { ACCOUNT_SOURCES, disconnectAccount, useAccount } from '../lib/accounts'
 import { cls, plural } from '../lib/format'
@@ -184,8 +185,8 @@ export function SettingsView({ tab = 'general' }: { tab?: 'general' | 'eq' | 'th
         ))}
       </Section>
 
-      <Section title="Playlist sync">
-        <SyncRow />
+      <Section title="ProjectM account">
+        <AccountRows />
       </Section>
 
       <Section title="System">
@@ -303,51 +304,102 @@ const ago = (t: number) => {
 }
 
 /** Your ProjectM playlists on every PC and phone, through a private GitHub repo. */
-function SyncRow() {
-  const [st, setSt] = useState<SyncStatus | null>(null)
+/** Your ProjectM account: playlists (and more) on every PC and phone you log in on. */
+function AccountRows() {
+  const a = useProjectMAccount()
+  const [devices, setDevices] = useState<{ devices: AccountDevice[]; thisDevice: string } | null>(null)
+  const [showDevices, setShowDevices] = useState(false)
+  const loadDevices = () =>
+    window.api.account.devices().then(setDevices, (e) => {
+      toast(accountError(e))
+      setShowDevices(false)
+    })
   useEffect(() => {
-    window.api.sync.status().then(setSt)
-    return window.api.sync.onStatus(setSt)
-  }, [])
-  if (!st) return null
-  if (st.code)
+    if (showDevices && a.loggedIn) loadDevices()
+  }, [showDevices, a.loggedIn])
+
+  if (!a.loggedIn)
     return (
-      <Row label="Enter this code on GitHub" hint={`Opened ${st.code.url} in your browser. Sign in there and enter the code; this updates by itself.`}>
+      <Row
+        label={a.needsLogin ? `Logged out (${a.email ?? 'your account'})` : 'Not logged in'}
+        hint={
+          a.needsLogin
+            ? 'Your password was changed or this PC was removed from your devices. Log in again to keep syncing; nothing on this PC was lost.'
+            : 'Log in to get your playlists on every PC and iPhone, or create a free ProjectM account.'
+        }
+      >
         <div className="row">
-          <span className="sync-code">{st.code.userCode}</span>
-          <button className="btn small ghost" onClick={() => navigator.clipboard.writeText(st.code!.userCode).then(() => toast('Code copied'))}>
-            Copy
+          <button className="btn small ghost" onClick={() => openAccountDialog('signup')}>
+            Create account
           </button>
-          <button className="btn small ghost" onClick={() => window.api.sync.cancel()}>
-            Cancel
+          <button className="btn small primary" onClick={() => openAccountDialog('login')}>
+            Log in
           </button>
         </div>
       </Row>
     )
   return (
-    <Row
-      label="Sync playlists between devices"
-      hint={
-        st.error
-          ? `Couldn't sync: ${st.error}`
-          : st.connected
-            ? `Signed in as ${st.account ?? '…'} · ${st.syncing ? 'syncing…' : st.lastSync ? `synced ${ago(st.lastSync)}` : 'waiting'}. Your ProjectM playlists are kept in your private ${st.account ?? ''} projectm-sync repo and match on every PC and phone signed in to it.`
-            : 'Keeps your ProjectM playlists the same on every PC and iPhone. They are stored in a private GitHub repository only you can see.'
-      }
-    >
-      {st.connected ? (
-        <div className="row">
-          <button className="btn small ghost" disabled={st.syncing} onClick={() => window.api.sync.now()}>
-            Sync now
-          </button>
-          <ConfirmButton label="Disconnect" onConfirm={() => window.api.sync.disconnect()} />
-        </div>
-      ) : (
-        <button className="btn small primary" onClick={() => window.api.sync.connect()}>
-          Connect GitHub
+    <>
+      <Row
+        label={a.email ?? 'Logged in'}
+        hint={a.error ? `Couldn't sync: ${a.error}` : a.syncing ? 'Syncing…' : a.lastSync ? `Synced ${ago(a.lastSync)}. Your playlists are the same on every device you log in on.` : 'Waiting to sync'}
+      >
+        <button className="btn small ghost" disabled={a.syncing} onClick={() => window.api.account.syncNow()}>
+          Sync now
         </button>
+      </Row>
+      <Row label="Devices" hint="PCs and iPhones logged in to this account. Remove one you no longer use, like a lost phone.">
+        <button className="btn small ghost" onClick={() => setShowDevices((v) => !v)}>
+          {showDevices ? 'Hide' : 'Show'}
+        </button>
+      </Row>
+      {showDevices && (
+        <div className="device-list">
+          {!devices ? (
+            <div className="settings-hint">Loading…</div>
+          ) : (
+            devices.devices.map((d) => (
+              <div key={d.id} className="device-row">
+                <span className="device-name">
+                  {d.name}
+                  {d.id === devices.thisDevice && <span className="pill">This PC</span>}
+                </span>
+                <span className="device-meta">
+                  {d.platform === 'ios' ? 'iPhone' : d.platform === 'windows' ? 'Windows' : d.platform} · last seen {ago(d.lastSeen)}
+                </span>
+                {d.id !== devices.thisDevice && (
+                  <ConfirmButton
+                    label="Log out"
+                    onConfirm={() =>
+                      window.api.account.removeDevice(d.id).then(
+                        () => {
+                          toast(`${d.name} logged out`)
+                          loadDevices()
+                        },
+                        (e) => toast(accountError(e)),
+                      )
+                    }
+                  />
+                )}
+              </div>
+            ))
+          )}
+        </div>
       )}
-    </Row>
+      <Row label="Password" hint="Set a new one any time from here, even if you forgot the old one.">
+        <button className="btn small ghost" onClick={() => openAccountDialog('password')}>
+          Set new password
+        </button>
+      </Row>
+      <Row label="Log out of this PC" hint="Stops syncing. Playlists, settings and history stay on this PC.">
+        <div className="row">
+          <ConfirmButton label="Log out" onConfirm={() => window.api.account.logOut()} />
+          <button className="btn small ghost danger" onClick={() => openAccountDialog('delete')}>
+            Delete account
+          </button>
+        </div>
+      </Row>
+    </>
   )
 }
 

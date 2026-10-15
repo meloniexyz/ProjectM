@@ -8,12 +8,15 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "dist": "electron-vite build && electron-builder --win"
+    "dist": "electron-vite build && electron-builder --win",
+    "test": "esbuild test/*.test.ts --bundle --platform=node --format=esm --outdir=.tmp/test --out-extension:.js=.mjs --log-level=warning && node --test .tmp/test/*.test.mjs"
   },
   "author": "m",
   "license": "UNLICENSED",
   "type": "commonjs",
   "dependencies": {
+    "@noble/ciphers": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
     "music-metadata": "^11.16.1",
     "youtubei.js": "^18.1.0"
   },

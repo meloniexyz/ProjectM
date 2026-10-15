@@ -14,7 +14,8 @@ import { getLyrics } from './lyrics'
 import { ListenHistory } from './history'
 import { getSongInfo } from './songinfo'
 import { Secrets } from './secrets'
-import { PlaylistSync } from './playlist-sync'
+import { AccountSync } from './account-sync'
+import { setAccountServer } from '../shared/account'
 import { YouTubeMusic } from './sources/youtube'
 import { DEFAULT_SETTINGS, type ListenEntry, type Playlist, type ScanProgress, type Settings, type SourceId } from '../shared/types'
 
@@ -50,14 +51,17 @@ const listenHistory = new ListenHistory(join(dataDir, 'history.json'))
 const youtube = new YouTubeMusic(join(dataDir, 'cache'), secrets)
 const spotify = new Spotify(join(dataDir, 'spotify.json'))
 const soundcloud = new SoundCloud(secrets)
-const playlistSync = new PlaylistSync(
+// PROJECTM_SERVER points a test run at a local projectm-server (wrangler dev)
+if (process.env.PROJECTM_SERVER) setAccountServer(process.env.PROJECTM_SERVER)
+const accountSync = new AccountSync(
   secrets,
   playlists,
   new JsonFile<Record<string, number>>(join(dataDir, 'deleted-playlists.json'), {}),
+  new JsonFile<{ id?: string }>(join(dataDir, 'device.json'), {}),
   (list) => keptFiles.prune(list),
 )
-playlistSync.onStatus = (s) => win?.webContents.send('sync:status', s)
-playlistSync.onPlaylists = (list) => win?.webContents.send('playlists:changed', list)
+accountSync.onStatus = (s) => win?.webContents.send('pmaccount:status', s)
+accountSync.onPlaylists = (list) => win?.webContents.send('playlists:changed', list)
 const streaming: Partial<Record<SourceId, StreamingSource>> = { youtube, soundcloud, spotify }
 const accounts: Partial<Record<SourceId, AccountSource>> = { youtube, soundcloud, spotify }
 
@@ -378,17 +382,23 @@ ipcMain.handle('playlists:get', async () => {
   return playlists.get()
 })
 ipcMain.handle('playlists:save', async (_, saved: Playlist[]) => {
-  const { list, changed } = playlistSync.merge(saved)
+  const { list, changed } = accountSync.merge(saved)
   if (changed) win?.webContents.send('playlists:changed', list)
   await playlists.set(list)
   await keptFiles.prune(list)
 })
-ipcMain.handle('playlists:deleted', (_, id: string) => playlistSync.markDeleted(id))
-ipcMain.handle('sync:status', () => playlistSync.status)
-ipcMain.handle('sync:connect', () => playlistSync.connect((url) => shell.openExternal(url)))
-ipcMain.handle('sync:cancel', () => playlistSync.cancelConnect())
-ipcMain.handle('sync:disconnect', () => playlistSync.disconnect())
-ipcMain.handle('sync:now', () => playlistSync.syncNow())
+ipcMain.handle('playlists:deleted', (_, id: string) => accountSync.markDeleted(id))
+ipcMain.handle('pmaccount:status', () => accountSync.status)
+ipcMain.handle('pmaccount:signUp', (_, email: string, password: string) => accountSync.signUp(email, password))
+ipcMain.handle('pmaccount:logIn', (_, email: string, password: string) => accountSync.logIn(email, password))
+ipcMain.handle('pmaccount:recover', (_, email: string, code: string, password: string) => accountSync.recover(email, code, password))
+ipcMain.handle('pmaccount:changePassword', (_, next: string) => accountSync.changePassword(next))
+ipcMain.handle('pmaccount:ownerReset', (_, email: string, password: string) => accountSync.ownerReset(email, password))
+ipcMain.handle('pmaccount:devices', () => accountSync.devices())
+ipcMain.handle('pmaccount:removeDevice', (_, id: string) => accountSync.removeDevice(id))
+ipcMain.handle('pmaccount:logOut', () => accountSync.logOut())
+ipcMain.handle('pmaccount:delete', (_, password: string) => accountSync.deleteAccount(password))
+ipcMain.handle('pmaccount:syncNow', () => accountSync.syncNow())
 ipcMain.handle('playlists:keep', (_, ids: string[]) => keepTracks(ids))
 ipcMain.handle('playlists:pickCover', async () => {
   const r = await dialog.showOpenDialog(win!, {
@@ -404,11 +414,11 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark'
   Menu.setApplicationMenu(null)
   await Promise.all([library.load(), playlists.load(), keptFiles.load(), spotify.load(), secrets.load(), windowState.load(), settings.load(), listenHistory.load()])
-  await playlistSync.load()
+  await accountSync.load()
   protocol.handle('media', (req) => handleMedia(req, library, youtube, keptFiles))
   createWindow()
-  playlistSync.start()
-  win?.on('focus', () => playlistSync.syncNow())
+  accountSync.start()
+  win?.on('focus', () => accountSync.syncNow())
   // Pick up files added/changed while the app was closed.
   if ({ ...DEFAULT_SETTINGS, ...settings.get() }.rescanOnStartup) library.rescan(progress)
 })

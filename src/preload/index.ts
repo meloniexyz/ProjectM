@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { SyncStatus } from '../shared/sync'
+import type { AccountDevice } from '../shared/account'
+import type { ProjectMAccountStatus } from '../main/account-sync'
 import type {
   LibraryState,
   Playlist,
@@ -131,18 +132,26 @@ const api = {
       return () => ipcRenderer.removeListener('playlists:changed', listener)
     },
   },
-  /** playlist sync through a private GitHub repo */
-  sync: {
-    status: (): Promise<SyncStatus> => ipcRenderer.invoke('sync:status'),
-    connect: (): Promise<void> => ipcRenderer.invoke('sync:connect'),
-    cancel: (): Promise<void> => ipcRenderer.invoke('sync:cancel'),
-    disconnect: (): Promise<void> => ipcRenderer.invoke('sync:disconnect'),
-    now: (): Promise<void> => ipcRenderer.invoke('sync:now'),
-    onStatus: (fn: (s: SyncStatus) => void) => {
-      const listener = (_: unknown, s: SyncStatus) => fn(s)
-      ipcRenderer.on('sync:status', listener)
+  /** ProjectM account: same playlists (and more) on every PC and phone */
+  account: {
+    status: (): Promise<ProjectMAccountStatus> => ipcRenderer.invoke('pmaccount:status'),
+    signUp: (email: string, password: string): Promise<{ recoveryCode: string }> => ipcRenderer.invoke('pmaccount:signUp', email, password),
+    logIn: (email: string, password: string): Promise<void> => ipcRenderer.invoke('pmaccount:logIn', email, password),
+    recover: (email: string, code: string, password: string): Promise<{ recoveryCode: string }> => ipcRenderer.invoke('pmaccount:recover', email, code, password),
+    /** new password from this logged-in PC; no old password needed */
+    changePassword: (next: string): Promise<void> => ipcRenderer.invoke('pmaccount:changePassword', next),
+    /** forgot password without a code: works for 24 h after the server owner allows it */
+    ownerReset: (email: string, password: string): Promise<{ recoveryCode: string }> => ipcRenderer.invoke('pmaccount:ownerReset', email, password),
+    devices: (): Promise<{ devices: AccountDevice[]; thisDevice: string }> => ipcRenderer.invoke('pmaccount:devices'),
+    removeDevice: (id: string): Promise<void> => ipcRenderer.invoke('pmaccount:removeDevice', id),
+    logOut: (): Promise<void> => ipcRenderer.invoke('pmaccount:logOut'),
+    deleteAccount: (password: string): Promise<void> => ipcRenderer.invoke('pmaccount:delete', password),
+    syncNow: (): Promise<void> => ipcRenderer.invoke('pmaccount:syncNow'),
+    onStatus: (fn: (s: ProjectMAccountStatus) => void) => {
+      const listener = (_: unknown, s: ProjectMAccountStatus) => fn(s)
+      ipcRenderer.on('pmaccount:status', listener)
       return () => {
-        ipcRenderer.removeListener('sync:status', listener)
+        ipcRenderer.removeListener('pmaccount:status', listener)
       }
     },
   },
