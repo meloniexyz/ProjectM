@@ -53,9 +53,14 @@ export interface DerivedKeys {
   wrapKey: Uint8Array
 }
 
+type Pbkdf2 = (password: Uint8Array, salt: Uint8Array, iterations: number, length: number) => Promise<Uint8Array>
+let pbkdf2: Pbkdf2 = (password, salt, c, dkLen) => pbkdf2Async(sha256, password, salt, { c, dkLen, asyncTick: 20 })
+/** ProjectMobile passes iOS's native PBKDF2-HMAC-SHA256 (same result, ~50x faster than JavaScript there). */
+export const setPbkdf2 = (fn: Pbkdf2) => (pbkdf2 = fn)
+
 /** Password (or recovery code) + salt -> login key and wrap key. Takes about a second. */
 export async function deriveKeys(secret: string, saltB64: string, iterations: number): Promise<DerivedKeys> {
-  const master = await pbkdf2Async(sha256, enc.encode(secret), fromB64(saltB64), { c: iterations, dkLen: 32, asyncTick: 20 })
+  const master = await pbkdf2(enc.encode(secret), fromB64(saltB64), iterations, 32)
   return {
     loginKey: toB64(hkdf(sha256, master, undefined, enc.encode('projectm login'), 32)),
     wrapKey: hkdf(sha256, master, undefined, enc.encode('projectm wrap'), 32),
