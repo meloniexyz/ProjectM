@@ -267,8 +267,8 @@ ipcMain.handle('sources:newReleases', (_, force?: boolean, maxMinutes?: number) 
             }),
           ),
         )
-        // newest first; sources without exact dates keep their own order
-        const items = lists.flat().sort((a, b) => (b.releasedAt ?? 0) - (a.releasedAt ?? 0))
+        // Spotify first, then SoundCloud, then YouTube; newest first within each
+        const items = [lists[0], lists[2], lists[1]].flatMap((l) => [...l].sort((a, b) => (b.releasedAt ?? 0) - (a.releasedAt ?? 0)))
         return { items, problems }
       })(),
     }
