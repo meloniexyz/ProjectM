@@ -71,11 +71,13 @@ The client:
 
 Merge rules per kind:
 - **playlists:** existing `mergePlaylists`.
-- **look / sound:** last-writer-wins per field, with a changed-at time per field. Unknown fields are kept, which carries iPhone-only options.
-- **history:** union by entry id. Deletions and "cleared before T" markers are kept as tombstones. The server keeps the newest 5,000 entries.
+- **look / sound:** last-writer-wins per field, with a changed-at time per field (the device's clock; a change is detected by comparing with the value last synced). Unknown fields are kept, which carries iPhone-only options.
+- **history:** not a document. It's a table of single plays (`POST /v1/history` sends new or updated plays, removals and "clear before T"; `GET /v1/history?since=<seq>` returns changes after a sequence number). A whole-history document would re-upload megabytes for every song played on mobile data. Plays merge by id (the longer listen wins); removal markers and "cleared before" apply on every device. The server keeps the newest 5,000 plays.
 - **platforms:** one encrypted blob containing `{ youtube?, soundcloud?, spotifyClientId?, changedAt per item }`, decrypted and merged per item on the device.
 
-Size: a 5,000-entry history is about 2 MB, under D1's row limit. If needed it is split into monthly documents (an internal change).
+Downloads: the client sends `have=kind:version`, and documents it already has come back as "unchanged" without their data, so the 2-minute sync costs almost nothing when nothing changed.
+
+First sync of a device: a setting or sign-in this device has never synced counts as older than the account's, so a newly logged-in device takes the account's look, sound and platforms. Its own values only fill in what the account doesn't have yet. Otherwise a new phone with default settings would overwrite the PC's.
 
 Alternative considered: one big document. Rejected because history traffic would resend playlists on every play.
 
@@ -123,7 +125,7 @@ Screens:
 - [Free-tier limits: KV 1 GB and 1,000 writes a day, D1 5 GB, 100k Worker requests a day] → The relay cap is 250 MB per account; covers are written once. Sync runs at most every 2 minutes per open device (about 700 requests a device a day). Fine for a small group of friends.
 - [A YouTube refresh token shared across devices gets revoked] → Each device detects "signed out" and clears it account-wide, so the person reconnects once.
 - [A stolen session token] → It's stored in DPAPI / the keychain, can be revoked from the devices list, and can't decrypt sign-ins without the account key (also stored only on devices).
-- [Clock differences break last-writer-wins] → The server stamps `changedAt` on receipt for look/sound fields; playlists keep their own `updatedAt`, as now.
+- [Clock differences break last-writer-wins] → Fields are per setting, so a few minutes of clock difference only matters when two devices change the same setting within those minutes; playlists keep their own `updatedAt`, as now.
 
 ## Migration Plan
 

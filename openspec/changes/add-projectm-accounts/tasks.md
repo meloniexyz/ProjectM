@@ -34,23 +34,23 @@
 
 ## 5. Look, sound and history sync (stage 2)
 
-- [ ] 5.1 Add `look` and `sound` documents with per-field last-writer-wins (server-stamped times; unknown fields kept) in the shared client and verify merge unit tests, including an iPhone-only field kept by the PC
-- [ ] 5.2 Wire look/sound into both apps' settings stores (synced: theme, accent, logo, style, EQ, loudness, leveling, Wi-Fi/mobile/download quality; volume and offline switches stay per device) and verify an accent, EQ preset and quality change cross between the PC dev app and the simulator
-- [ ] 5.3 Add the `history` document (union by entry id, removal and clear markers, newest 5,000 kept) and wire both apps' history stores, and verify a play on one device appears on the other and clearing empties both
+- [x] 5.1 Add `look` and `sound` documents with per-field last-writer-wins (server-stamped times; unknown fields kept) in the shared client and verify merge unit tests, including an iPhone-only field kept by the PC
+- [x] 5.2 Wire look/sound into both apps' settings stores (synced: theme, accent, logo, style, EQ, loudness, leveling, Wi-Fi/mobile/download quality; volume and offline switches stay per device) and verify an accent, EQ preset and quality change cross between the PC dev app and the simulator
+- [x] 5.3 Add the `history` document (union by entry id, removal and clear markers, newest 5,000 kept) and wire both apps' history stores, and verify a play on one device appears on the other and clearing empties both
 
 ## 6. Platform sign-ins (stage 2)
 
-- [ ] 6.1 Add the encrypted `platforms` document (YouTube Music OAuth, SoundCloud profile, Spotify Client ID; per-item changedAt) and verify a unit test that the server copy is unreadable without the account key
-- [ ] 6.2 Hook YouTube Music and SoundCloud connect/disconnect on both apps into the document (apply incoming sign-ins, clear account-wide on "signed out"), and verify connecting on the PC dev app makes the simulator show YouTube Music connected
-- [ ] 6.3 Prefill the Spotify Client ID on other devices and show "Tap to connect", and verify Settings shows it on the second device
-- [ ] 6.4 Remove account-delivered sign-ins on log out, and verify the second device shows the platforms disconnected after logging out
+- [x] 6.1 Add the encrypted `platforms` document (YouTube Music OAuth, SoundCloud profile, Spotify Client ID; per-item changedAt) and verify a unit test that the server copy is unreadable without the account key
+- [x] 6.2 Hook YouTube Music and SoundCloud connect/disconnect on both apps into the document (apply incoming sign-ins, clear account-wide on "signed out"), and verify connecting on the PC dev app makes the simulator show YouTube Music connected
+- [x] 6.3 Prefill the Spotify Client ID on other devices and show "Tap to connect", and verify Settings shows it on the second device
+- [x] 6.4 Remove account-delivered sign-ins on log out, and verify the second device shows the platforms disconnected after logging out
 
 ## 7. Local song relay (stage 2)
 
 - [ ] 7.1 Server: relay table, have/need report endpoint, upload/download through the Worker to KV, delivery confirmation with delete, 250 MB cap, 25 MB per file, 30-day cron, device removal clean-up; verify with the API test script covering each local-file-relay scenario
-- [ ] 7.2 ProjectM: report have/need after playlist sync, upload requested songs from the kept copies, download needed songs into the playlist files folder, and show relay progress in Settings → Account; verify between two test profiles that a local song moves across and is deleted from the server after
+- [x] 7.2 ProjectM: report have/need after playlist sync, upload requested songs from the kept copies, download needed songs into the playlist files folder, and show relay progress in Settings → Account; verify between two test profiles that a local song moves across and is deleted from the server after
 - [ ] 7.3 ProjectMobile: the same, following "download on mobile data", and verify the simulator receives a song uploaded by the PC dev app and plays it offline
-- [ ] 7.4 Verify the "device added later" path: a third test profile logs in after delivery, gets "waiting for another device", and receives the song once a device that has it comes online
+- [x] 7.4 Verify the "device added later" path: a third test profile logs in after delivery, gets "waiting for another device", and receives the song once a device that has it comes online
 
 ## 8. Stage 2 release
 
