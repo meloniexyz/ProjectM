@@ -4,7 +4,7 @@ import type { SourceId, StreamInfo, Track } from '../../../shared/types'
 import { recordPlay } from './history'
 import { connectAudio, resumeAudio, setEq, setMediaElement, setNormalizeEnabled, setOutputVolume, setTargetLufs, startSong } from './loudness'
 import { BAND_LAYOUTS } from './eq'
-import { getSettings, LOUDNESS_LUFS, settingsStore } from './settings'
+import { getSettings, LOUDNESS_LUFS, settingsStore, updateSettings } from './settings'
 import { shuffled } from './format'
 import { cleanError, resolveStream } from './sources'
 import { toast } from './ui'
@@ -243,6 +243,11 @@ settingsStore.subscribe(() => {
   if (s.loudnessLevel !== lastSettings.loudnessLevel) setTargetLufs(LOUDNESS_LUFS[s.loudnessLevel])
   if (s.spotifyLevelDb !== lastSettings.spotifyLevelDb) applyVolume()
   if (s.eq !== lastSettings.eq) applyEq()
+  // volume leveling switched on another device (ProjectM account)
+  if (s.normalize !== undefined && s.normalize !== state.normalize) {
+    emit({ normalize: s.normalize })
+    setNormalizeEnabled(s.normalize)
+  }
   lastSettings = s
 })
 setTargetLufs(LOUDNESS_LUFS[getSettings().loudnessLevel])
@@ -634,6 +639,7 @@ export function toggleShuffle() {
 export function toggleNormalize() {
   emit({ normalize: !state.normalize })
   setNormalizeEnabled(state.normalize)
+  updateSettings({ normalize: state.normalize }) // so it follows the ProjectM account
   toast(state.normalize ? 'Volume leveling on: every song plays at the same loudness' : 'Volume leveling off')
 }
 

@@ -100,6 +100,20 @@ const api = {
   settings: {
     get: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
     set: (patch: Partial<Settings>): Promise<Settings> => ipcRenderer.invoke('settings:set', patch),
+    /** settings changed by another device (ProjectM account) */
+    onChanged: (fn: (s: Settings) => void) => {
+      const listener = (_: unknown, s: Settings) => fn(s)
+      ipcRenderer.on('settings:changed', listener)
+    },
+  },
+  /** listening history or platform sign-ins changed by another device (ProjectM account) */
+  synced: {
+    onHistory: (fn: () => void) => {
+      ipcRenderer.on('history:changed', () => fn())
+    },
+    onPlatforms: (fn: () => void) => {
+      ipcRenderer.on('platforms:changed', () => fn())
+    },
   },
   app: {
     info: (): Promise<{ version: string; dataDir: string; electron: string }> => ipcRenderer.invoke('app:info'),

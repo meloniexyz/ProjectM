@@ -90,6 +90,15 @@ export class SoundCloud implements StreamingSource, AccountSource {
   private clientId: Promise<string> | null = null
   constructor(private readonly secrets: Secrets) {}
 
+  /** For ProjectM accounts: the connected profile, or null. */
+  syncedProfile() {
+    return this.profile() ?? null
+  }
+
+  async useSyncedProfile(p: unknown | null) {
+    await this.secrets.set(PROFILE_KEY, p ? JSON.stringify(p) : undefined)
+  }
+
   /** The profile the user connected. Likes and public playlists need no login. */
   private profile(): ScUser | undefined {
     const raw = this.secrets.get(PROFILE_KEY)

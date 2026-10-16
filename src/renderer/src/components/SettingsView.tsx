@@ -298,6 +298,18 @@ function AccountRow({ source }: { source: SourceId }) {
   )
 }
 
+/** Local songs passing between devices, in words. */
+function relayText(r?: { waitingForDevice: number; waitingForSpace: number; sending: number; receiving: number }) {
+  if (!r) return ''
+  const parts = [
+    r.sending && `sending ${r.sending} of your songs to your other devices`,
+    r.receiving && `receiving ${r.receiving}`,
+    r.waitingForDevice && `${r.waitingForDevice} waiting for a device that has them to come online`,
+    r.waitingForSpace && `${r.waitingForSpace} waiting for space on the server`,
+  ].filter(Boolean)
+  return parts.length ? ` Local songs: ${parts.join(', ')}.` : ''
+}
+
 const ago = (t: number) => {
   const m = Math.round((Date.now() - t) / 60000)
   return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : new Date(t).toLocaleString()
@@ -342,7 +354,15 @@ function AccountRows() {
     <>
       <Row
         label={a.email ?? 'Logged in'}
-        hint={a.error ? `Couldn't sync: ${a.error}` : a.syncing ? 'Syncing…' : a.lastSync ? `Synced ${ago(a.lastSync)}. Your playlists are the same on every device you log in on.` : 'Waiting to sync'}
+        hint={
+          a.error
+            ? `Couldn't sync: ${a.error}`
+            : a.syncing
+              ? 'Syncing…'
+              : a.lastSync
+                ? `Synced ${ago(a.lastSync)}. Playlists, look, sound, history and your YouTube Music / SoundCloud sign-ins are the same on every device you log in on.${relayText(a.relay)}`
+                : 'Waiting to sync'
+        }
       >
         <button className="btn small ghost" disabled={a.syncing} onClick={() => window.api.account.syncNow()}>
           Sync now

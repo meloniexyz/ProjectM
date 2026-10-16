@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readdir, rm, stat } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import type { Playlist } from '../shared/types'
 import { JsonFile } from './json-file'
@@ -65,6 +65,16 @@ export class KeptFiles {
     }
     await this.index.set(index)
     return kept
+  }
+
+  /** A song another device sent through the account becomes this playlist track's copy. */
+  addReceived(id: string, title: string, artist: string, bytes: Uint8Array, ext: string) {
+    return this.exclusive(async () => {
+      const safe = `${artist} - ${title}`.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '').slice(0, 80)
+      const name = `${safe} [${id.slice(0, 8)}].${ext}`
+      await writeFile(join(this.dir, name), bytes)
+      await this.index.set({ ...this.index.get(), [id]: name })
+    })
   }
 
   /** Deletes copies no playlist refers to anymore (and stray files in the folder). */

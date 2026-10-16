@@ -15,6 +15,7 @@ import { ListenHistory } from './history'
 import { getSongInfo } from './songinfo'
 import { Secrets } from './secrets'
 import { AccountSync } from './account-sync'
+import { AccountExtras, EMPTY_EXTRAS, type ExtrasState } from './account-extras'
 import { setAccountServer } from '../shared/account'
 import { YouTubeMusic } from './sources/youtube'
 import { DEFAULT_SETTINGS, type ListenEntry, type Playlist, type ScanProgress, type Settings, type SourceId } from '../shared/types'
@@ -74,6 +75,50 @@ const accountSync = new AccountSync(
   },
   (list) => keptFiles.prune(list),
 )
+// settings, history, platform sign-ins and local songs following the account
+const squash = (x: string) => x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+const mainArtist = (a: string) => squash(a.split(/,|&| feat\.? | ft\.? /i)[0] ?? '')
+accountSync.extras = new AccountExtras(new JsonFile<ExtrasState>(join(dataDir, 'account-extras.json'), EMPTY_EXTRAS), {
+  settings: () => ({ ...DEFAULT_SETTINGS, ...settings.get() }),
+  async applySettings(patch) {
+    const next = { ...DEFAULT_SETTINGS, ...settings.get(), ...patch }
+    await settings.set(next)
+    win?.webContents.send('settings:changed', next)
+  },
+  history: {
+    all: () => listenHistory.all(),
+    replaceAll: (list) => listenHistory.replaceAll(list),
+    changed: () => win?.webContents.send('history:changed'),
+  },
+  platforms: {
+    get: () => ({ youtube: youtube.syncedLogin(), soundcloud: soundcloud.syncedProfile(), spotifyClientId: spotify.syncedClientId() }),
+    async set(field, value) {
+      if (field === 'youtube') await youtube.useSyncedLogin(value as Record<string, unknown> | null)
+      else if (field === 'soundcloud') await soundcloud.useSyncedProfile(value)
+      else await spotify.useSyncedClientId(value as string | null)
+    },
+    changed: () => win?.webContents.send('platforms:changed'),
+  },
+  playlists: () => playlists.get(),
+  localFile(t) {
+    const own = keptFiles.pathFor(t.id) ?? library.pathFor(t.id)
+    if (own) return own
+    // the same song in this PC's library (synced playlists carry other devices' file ids)
+    const twin = library.state().tracks.find((c) => squash(c.title) === squash(t.title) && mainArtist(c.artist) === mainArtist(t.artist) && (!t.duration || !c.duration || Math.abs(c.duration - t.duration) <= 3))
+    return twin ? library.pathFor(twin.id) : undefined
+  },
+  async keepReceived(id, bytes, ext) {
+    const t = playlists.get().flatMap((p) => p.tracks).find((x) => x.id === id)
+    await keptFiles.addReceived(id, t?.title ?? id, t?.artist ?? '', bytes, ext)
+    accountSync.markKept([id])
+  },
+  relayStatus: (r) => accountSync.setRelayStatus(r),
+})
+listenHistory.onChange = (c) => {
+  if (c.upsert) accountSync.extras?.noteUpsert(c.upsert)
+  if (c.remove) accountSync.extras?.noteRemove(c.remove)
+  if (c.clear) accountSync.extras?.noteClear()
+}
 accountSync.onStatus = (s) => win?.webContents.send('pmaccount:status', s)
 accountSync.onPlaylists = (list) => win?.webContents.send('playlists:changed', list)
 const streaming: Partial<Record<SourceId, StreamingSource>> = { youtube, soundcloud, spotify }

@@ -445,6 +445,27 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     return token
   }
 
+  /**
+   * The sign-in as it travels with a ProjectM account: without the short-lived access token (each
+   * device refreshes its own). Only the TV sign-in works on every device; others aren't shared.
+   */
+  syncedLogin(): Record<string, unknown> | null | undefined {
+    const s = this.saved()
+    if (!s) return null
+    if (s.mode && s.mode !== 'tv') return undefined
+    const { access_token: _a, expiry_date: _e, expires_in: _x, ...rest } = s as SavedLogin & { expires_in?: number }
+    return rest
+  }
+
+  /** A sign-in from another device (or null: signed out there). */
+  async useSyncedLogin(login: Record<string, unknown> | null) {
+    if (!login) return this.logout()
+    await this.save({ ...(login as SavedLogin), access_token: '', expiry_date: new Date(0).toISOString() })
+    this.authedClient = null
+    this.userName = null
+    this.nameLookup = null
+  }
+
   async logout() {
     await this.save(undefined)
     this.authedClient = null

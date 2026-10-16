@@ -1,4 +1,7 @@
 import type { ProjectMAccountStatus } from '../../../main/account-sync'
+import { ACCOUNT_SOURCES, initAccounts, refreshAccount } from './accounts'
+import { rebuildFromLog } from './history'
+import { listenLogChanged } from './listenLog'
 import { createStore, useStore } from './store'
 
 /** The ProjectM account as the main process reports it. */
@@ -13,6 +16,15 @@ export function initAccount() {
   started = true
   window.api.account.status().then(apply)
   window.api.account.onStatus(apply)
+  // things other devices changed (ProjectM account)
+  window.api.synced.onHistory(() => {
+    listenLogChanged()
+    void rebuildFromLog()
+  })
+  window.api.synced.onPlatforms(() => {
+    for (const s of ACCOUNT_SOURCES) refreshAccount(s)
+    void initAccounts()
+  })
 }
 
 export const useProjectMAccount = () => useStore(accountStore, (s) => s)

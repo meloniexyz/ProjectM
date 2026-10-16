@@ -11,6 +11,8 @@ export const useSettings = () => useStore(settingsStore, (s) => s.settings)
 
 export async function initSettings() {
   settingsStore.set({ settings: await window.api.settings.get(), ready: true })
+  // changed on another device (ProjectM account)
+  window.api.settings.onChanged((settings) => settingsStore.set({ settings }))
 }
 
 let pending: Partial<Settings> = {}

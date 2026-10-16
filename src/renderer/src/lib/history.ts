@@ -47,6 +47,29 @@ export function mostPlayed(entries: Entry[], n: number) {
     .slice(0, n)
 }
 
+/** After history from other devices arrived: "Jump back in" and "Most played" include those plays. */
+export async function rebuildFromLog() {
+  const log = await window.api.history.all()
+  const byUid = new Map<string, Entry>()
+  for (const e of historyStore.get().entries) byUid.set(e.track.uid, { ...e })
+  const counted = new Map<string, Entry>()
+  for (const e of log) {
+    const cur = counted.get(e.track.uid)
+    counted.set(e.track.uid, { track: cur?.track ?? e.track, count: (cur?.count ?? 0) + 1, last: Math.max(cur?.last ?? 0, e.endedAt) })
+  }
+  for (const [uid, c] of counted) {
+    const mine = byUid.get(uid)
+    byUid.set(uid, mine ? { track: mine.track, count: Math.max(mine.count, c.count), last: Math.max(mine.last, c.last) } : c)
+  }
+  const entries = [...byUid.values()].sort((a, b) => b.last - a.last).slice(0, MAX)
+  historyStore.set({ entries })
+  try {
+    localStorage.setItem(KEY, JSON.stringify(entries))
+  } catch {
+    // not critical
+  }
+}
+
 export function clearHistory() {
   historyStore.set({ entries: [] })
   try {

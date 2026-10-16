@@ -1,10 +1,10 @@
 // ProjectM accounts client, shared by ProjectM (Windows) and ProjectMobile (iOS): keep both copies identical.
 // Talks to projectm-server (github.com/meloniexyz/projectm-server). Keys come from shared keys.ts, so the
 // password never leaves the device and platform sign-ins are encrypted before they're sent.
-import { fromB64, keyProof, lockAccountKey, newAccountLock, newRecoveryCode, normalizeEmail, passwordKeys, recoveryKeys, toB64, unwrapAccountKey } from './keys'
+import { fromB64, keyProof, lockAccountKey, newAccountLock, newRecoveryCode, normalizeEmail, openJson, passwordKeys, recoveryKeys, sealJson, toB64, unwrapAccountKey } from './keys'
 import { mergePlaylists, type MergeResult, type SyncDoc } from './sync'
 import { sha256 } from '@noble/hashes/sha2.js'
-import type { Playlist } from './types'
+import type { ListenEntry, Playlist } from './types'
 
 export const ACCOUNT_SERVER = 'https://projectm-server.zmeloniexd.workers.dev'
 
@@ -156,8 +156,20 @@ interface Doc<T> {
   data: T
 }
 
-const getDoc = async <T>(s: AccountSession, kind: DocKind) =>
-  (await call<{ docs: Record<string, Doc<T>> }>('GET', `/v1/docs?kinds=${kind}`, undefined, s.token)).docs[kind] ?? null
+// last copy of each document seen from the server, so an unchanged one isn't downloaded again
+const docCache = new Map<string, Doc<unknown>>()
+
+async function getDoc<T>(s: AccountSession, kind: DocKind): Promise<Doc<T> | null> {
+  const cacheKey = `${s.accountId}:${kind}`
+  const cached = docCache.get(cacheKey) as Doc<T> | undefined
+  const have = cached ? `&have=${kind}:${cached.version}` : ''
+  const got = (await call<{ docs: Record<string, Doc<T> & { unchanged?: true }> }>('GET', `/v1/docs?kinds=${kind}${have}`, undefined, s.token)).docs[kind]
+  if (!got) return null
+  if (got.unchanged && cached) return cached
+  const doc = { version: got.version, data: got.data }
+  docCache.set(cacheKey, doc)
+  return doc
+}
 
 /**
  * One sync of one document: read it, merge with this device, save the merge if it changed. If another
@@ -169,8 +181,12 @@ async function syncDoc<T, R>(s: AccountSession, kind: DocKind, merge: (remote: T
     const { upload, result } = merge(current?.data ?? null)
     if (!upload) return result
     const res: { version: number; error?: string; data?: T } = await call<{ version: number; error?: string; data?: T }>('PUT', `/v1/docs/${kind}`, { version: current?.version ?? 0, data: upload }, s.token)
-    if (!res.error) return result
+    if (!res.error) {
+      docCache.set(`${s.accountId}:${kind}`, { version: res.version, data: upload })
+      return result
+    }
     current = res.version ? { version: res.version, data: res.data as T } : null
+    if (current) docCache.set(`${s.accountId}:${kind}`, current)
   }
   throw new AccountError(409, 'busy', 'Another device kept saving at the same time, try again')
 }
@@ -183,6 +199,153 @@ export function syncPlaylists(s: AccountSession, local: () => { playlists: Playl
     return { upload: r.upload, result: r }
   })
 }
+
+// ---------- settings (look, sound) and platform sign-ins: newest change wins per field ----------
+
+/** Each field with the time it was last changed; fields a device doesn't know are kept for others. */
+export interface FieldDoc {
+  fields: Record<string, { v: unknown; at: number }>
+}
+
+/**
+ * Per field, the newer change wins. Returns everything merged, the fields whose value this device
+ * should take over, and what to upload (null when the account already has it all).
+ */
+export function mergeFields(local: FieldDoc, remote: FieldDoc | null) {
+  const merged: FieldDoc = { fields: { ...(remote?.fields ?? {}) } }
+  const take: string[] = []
+  for (const [k, mine] of Object.entries(local.fields)) {
+    const theirs = merged.fields[k]
+    if (!theirs || mine.at > theirs.at) merged.fields[k] = mine
+    else if (JSON.stringify(theirs.v) !== JSON.stringify(mine.v)) take.push(k)
+  }
+  const same = (a?: { v: unknown; at: number }, b?: { v: unknown; at: number }) => !!a && !!b && a.at === b.at && JSON.stringify(a.v) === JSON.stringify(b.v)
+  const upload = !remote || Object.keys(merged.fields).some((k) => !same(merged.fields[k], remote.fields[k])) ? merged : null
+  return { merged, take, upload }
+}
+
+/**
+ * Tracks when this device's synced fields changed: a value that differs from what was last synced
+ * counts as changed now. A field never synced from this device counts as oldest, so a device that
+ * just logged in takes the account's settings (its own only fill in what the account doesn't have).
+ * `known` is kept by the app between syncs.
+ */
+export function localFields(values: Record<string, unknown>, known: Record<string, { json: string; at: number }>, now = Date.now()): FieldDoc {
+  const fields: FieldDoc['fields'] = {}
+  for (const [k, v] of Object.entries(values)) {
+    if (v === undefined) continue
+    const json = JSON.stringify(v)
+    fields[k] = { v, at: !known[k] ? 0 : known[k].json === json ? known[k].at : now }
+  }
+  return { fields }
+}
+
+/** What the app keeps as `known` after a sync. */
+export const knownFrom = (doc: FieldDoc) => Object.fromEntries(Object.entries(doc.fields).map(([k, f]) => [k, { json: JSON.stringify(f.v), at: f.at }]))
+
+/** Look or sound settings: merged per setting with the account. */
+export function syncSettings(s: AccountSession, kind: 'look' | 'sound', local: () => FieldDoc) {
+  return syncDoc<FieldDoc, ReturnType<typeof mergeFields>>(s, kind, (remote) => {
+    const r = mergeFields(local(), remote)
+    return { upload: r.upload, result: r }
+  })
+}
+
+/**
+ * Platform sign-ins (YouTube Music, SoundCloud, Spotify Client ID), encrypted on the device with the
+ * account key: the server only ever sees the sealed blob. A disconnect is a field with value null.
+ */
+export function syncPlatforms(s: AccountSession, local: () => FieldDoc) {
+  const key = fromB64(s.accountKey)
+  return syncDoc<{ sealed: string }, ReturnType<typeof mergeFields>>(s, 'platforms', (remote) => {
+    let open: FieldDoc | null = null
+    if (remote?.sealed) {
+      try {
+        open = openJson<FieldDoc>(key, remote.sealed)
+      } catch {
+        open = null // sealed with an older key (after an owner reset): start over
+      }
+    }
+    const r = mergeFields(local(), open)
+    return { upload: r.upload ? { sealed: sealJson(key, r.upload) } : null, result: r }
+  })
+}
+
+// ---------- listening history ----------
+
+export interface HistoryChanges {
+  entries: ListenEntry[]
+  removed: string[]
+  clearedBefore: number
+  cursor: number
+}
+
+/** Sends this device's new or updated plays, removals and "clear history". */
+export function sendHistory(s: AccountSession, changes: { entries?: ListenEntry[]; removed?: string[]; clearedBefore?: number }) {
+  return call('POST', '/v1/history', changes, s.token)
+}
+
+/** Plays changed on any device since `cursor` (0 = everything). */
+export async function fetchHistory(s: AccountSession, cursor: number): Promise<HistoryChanges> {
+  const out: HistoryChanges = { entries: [], removed: [], clearedBefore: 0, cursor }
+  for (let page = 0; page < 10; page++) {
+    const r = await call<HistoryChanges & { more: boolean }>('GET', `/v1/history?since=${out.cursor}`, undefined, s.token)
+    out.entries.push(...r.entries)
+    out.removed.push(...r.removed)
+    out.clearedBefore = r.clearedBefore
+    out.cursor = r.cursor
+    if (!r.more) break
+  }
+  return out
+}
+
+// ---------- local songs passing between devices ----------
+
+/** The same song on every device: normalized title + main artist (file paths differ per device). */
+export function songKey(title: string, artist: string) {
+  const squash = (x: string) => x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+  const main = artist.split(/,|&| feat\.? | ft\.? /i)[0] ?? ''
+  return [...sha256(new TextEncoder().encode(`${squash(title)}|${squash(main)}`))]
+    .slice(0, 16)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+export interface RelayPlan {
+  /** songs on the server for this device */
+  downloads: string[]
+  /** songs this device should upload (another device needs them) */
+  uploads: string[]
+  /** needed songs no device has uploaded yet */
+  waitingForDevice: number
+  /** songs waiting for the account's 250 MB to free up */
+  waitingForSpace: number
+  inTransitBytes: number
+}
+
+export const relayReport = (s: AccountSession, have: { key: string; size: number }[], need: { key: string; title: string; artist: string; duration: number }[]) =>
+  call<RelayPlan>('POST', '/v1/relay/report', { have, need }, s.token)
+
+export async function relayUpload(s: AccountSession, key: string, bytes: Uint8Array, type: string, name: string) {
+  const res = await http(`${server}/v1/relay/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${s.token}`, 'Content-Type': type, 'X-File-Name': encodeURIComponent(name) },
+    body: new Uint8Array(bytes),
+  })
+  if (!res.ok) {
+    const d = (await res.json().catch(() => ({}))) as { error?: string; message?: string }
+    throw new AccountError(res.status, d.error ?? 'server_error', d.message ?? `Upload failed (${res.status})`)
+  }
+}
+
+export async function relayDownload(s: AccountSession, key: string): Promise<{ bytes: Uint8Array; type: string; name: string } | null> {
+  const res = await http(`${server}/v1/relay/${encodeURIComponent(key)}`, { headers: { Authorization: `Bearer ${s.token}` } })
+  if (res.status === 404) return null
+  if (!res.ok) throw new AccountError(res.status, res.status === 401 ? 'signed_out' : 'server_error', `Download failed (${res.status})`)
+  return { bytes: new Uint8Array(await res.arrayBuffer()), type: res.headers.get('Content-Type') ?? 'audio/mpeg', name: decodeURIComponent(res.headers.get('X-File-Name') ?? '') }
+}
+
+export const relayDone = (s: AccountSession, key: string) => call('POST', `/v1/relay/${encodeURIComponent(key)}/done`, undefined, s.token)
 
 // ---------- playlist covers picked from files ----------
 

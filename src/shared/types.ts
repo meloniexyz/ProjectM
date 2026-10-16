@@ -148,6 +148,8 @@ export interface Settings {
   accent: string | null
   /** logo style in the theme's colour (app icon and top-left logo), see renderer/lib/logos.ts */
   logo: string
+  /** volume leveling (mirrors the player's switch; follows the ProjectM account) */
+  normalize?: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {

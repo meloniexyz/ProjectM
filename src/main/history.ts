@@ -25,8 +25,17 @@ export class ListenHistory {
     return this.file.get()
   }
 
+  /** told about local changes, so the account can send them */
+  onChange: (change: { upsert?: string; remove?: string; clear?: true }) => void = () => {}
+
+  /** After merging with the account: the whole list, newest first. */
+  replaceAll(list: ListenEntry[]) {
+    this.save(list.slice(0, MAX_ENTRIES))
+  }
+
   /** Adds a new play or updates it (same id) as it progresses. */
   upsert(entry: ListenEntry) {
+    this.onChange({ upsert: entry.id })
     const all = this.file.get()
     const i = all.findIndex((e) => e.id === entry.id)
     const next = i >= 0 ? all.map((e, k) => (k === i ? entry : e)) : [entry, ...all].slice(0, MAX_ENTRIES)
@@ -34,10 +43,12 @@ export class ListenHistory {
   }
 
   remove(id: string) {
+    this.onChange({ remove: id })
     this.save(this.file.get().filter((e) => e.id !== id))
   }
 
   clear() {
+    this.onChange({ clear: true })
     this.save([])
   }
 

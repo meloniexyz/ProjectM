@@ -4,6 +4,7 @@ import * as account from '../shared/account'
 import type { AccountDevice, AccountSession, DeviceInfo } from '../shared/account'
 import { mergePlaylists, type SyncDoc } from '../shared/sync'
 import type { Playlist } from '../shared/types'
+import type { AccountExtras } from './account-extras'
 import type { JsonFile } from './json-file'
 import type { Secrets } from './secrets'
 
@@ -16,6 +17,8 @@ export interface ProjectMAccountStatus {
   error?: string
   /** logged out by the server (password changed elsewhere, removed from the devices list) */
   needsLogin?: boolean
+  /** local songs passing between devices */
+  relay?: { waitingForDevice: number; waitingForSpace: number; inTransitBytes: number; sending: number; receiving: number }
 }
 
 /** Reading and storing playlist cover images on this PC (media://art/...). */
@@ -52,8 +55,23 @@ export class AccountSync {
     private readonly afterApply: (list: Playlist[]) => void,
   ) {}
 
+  /** settings, history, platform sign-ins and local songs (set by index.ts) */
+  extras: AccountExtras | null = null
+
+  setRelayStatus(relay: ProjectMAccountStatus['relay']) {
+    this.set({ relay })
+  }
+
+  /** marks local songs that now have a copy on this PC (received from another device) */
+  markKept(trackIds: string[]) {
+    const ids = new Set(trackIds)
+    const list = this.playlists.get().map((p) => (p.tracks.some((t) => ids.has(t.id)) ? { ...p, tracks: p.tracks.map((t) => (ids.has(t.id) ? { ...t, kept: true } : t)) } : p))
+    this.playlists.set(list)
+    this.onPlaylists(list)
+  }
+
   async load() {
-    await Promise.all([this.deleted.load(), this.deviceFile.load(), this.coverMap.load()])
+    await Promise.all([this.deleted.load(), this.deviceFile.load(), this.coverMap.load(), this.extras?.load()])
   }
 
   // ---------- covers picked from files ----------
@@ -146,6 +164,7 @@ export class AccountSync {
     await this.secrets.set(SESSION, JSON.stringify(session))
     // GitHub playlist sync is replaced by the account: its playlists are already on this PC
     await this.secrets.set(GITHUB_TOKEN, undefined)
+    this.extras?.onLogin()
     this.set({ loggedIn: true, email: session.email, needsLogin: false, error: undefined })
     await this.syncNow()
   }
@@ -194,7 +213,8 @@ export class AccountSync {
     const s = this.session
     this.session = null
     await this.secrets.set(SESSION, undefined)
-    this.set({ loggedIn: false, email: undefined, syncing: false, lastSync: undefined, error: undefined, needsLogin: false })
+    this.set({ loggedIn: false, email: undefined, syncing: false, lastSync: undefined, error: undefined, needsLogin: false, relay: undefined })
+    await this.extras?.forgetAccountSignIns()
     if (s) await account.logOut(s)
   }
 
@@ -282,6 +302,7 @@ export class AccountSync {
       }
       // something newer than what was uploaded: send it next round
       if (m.upload) this.again = true
+      if (this.extras) await this.guard(this.extras.sync(s))
       this.set({ syncing: false, lastSync: Date.now(), error: undefined })
     } catch (e) {
       if (this.session) this.set({ syncing: false, error: (e as Error).message })

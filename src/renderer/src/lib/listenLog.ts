@@ -13,6 +13,8 @@ import { createStore } from './store'
 /** Bumped whenever the log changes, so open History/Stats pages can refresh. */
 export const listenLogStore = createStore<{ version: number }>({ version: 0 })
 const bump = () => listenLogStore.set((s) => ({ version: s.version + 1 }))
+/** History from other devices arrived: open History/Stats pages refresh. */
+export const listenLogChanged = bump
 
 let entry: ListenEntry | null = null
 let entryKey: number | null = null // queue item the entry belongs to

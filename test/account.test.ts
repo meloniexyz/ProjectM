@@ -2,7 +2,7 @@
 // `npx wrangler dev --port 8799 --local`, then `API=http://127.0.0.1:8799 npm test` here.
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { changePassword, downloadCover, logIn, ownerReset, recover, setAccountServer, signUp, syncPlaylists, uploadCover, type AccountSession } from '../src/shared/account'
+import { changePassword, downloadCover, fetchHistory, knownFrom, localFields, logIn, mergeFields, ownerReset, recover, relayDone, relayDownload, relayReport, relayUpload, sendHistory, setAccountServer, signUp, songKey, syncPlatforms, syncPlaylists, syncSettings, uploadCover, type AccountSession } from '../src/shared/account'
 import type { Playlist, Track } from '../src/shared/types'
 
 const API = process.env.API
@@ -85,6 +85,58 @@ describe('account client', { skip: !API && 'set API (wrangler dev of projectm-se
     assert.equal(r.session.accountKey, session.accountKey)
     assert.notEqual(r.recoveryCode, recoveryCode)
     await assert.rejects(ownerReset(email, 'fourth-password', dev('pc')), /has not been allowed/)
+  })
+
+  test('settings: newest change per setting wins; settings a device lacks are kept', () => {
+    const local = { fields: { theme: { v: 'amoled', at: 10 }, accent: { v: '#f00', at: 50 } } }
+    const remote = { fields: { theme: { v: 'nord', at: 40 }, accent: { v: '#0f0', at: 20 }, uiStyle: { v: 'glass', at: 5 } } }
+    const r = mergeFields(local, remote)
+    assert.deepEqual(r.take, ['theme'])
+    assert.equal(r.merged.fields.accent.v, '#f00')
+    assert.equal(r.merged.fields.uiStyle.v, 'glass') // iPhone-only, kept by the PC
+    assert.ok(r.upload)
+    assert.equal(mergeFields(r.merged, r.merged).upload, null)
+    // changes are noticed by comparing with what was synced last time
+    const known = knownFrom(r.merged)
+    assert.equal(localFields({ theme: 'nord' }, known, 999).fields.theme.at, 40)
+    assert.equal(localFields({ theme: 'crimson' }, known, 999).fields.theme.at, 999)
+    // a device that never synced takes the account's value instead of overwriting it
+    assert.equal(localFields({ theme: 'crimson' }, {}, 999).fields.theme.at, 0)
+    assert.deepEqual(mergeFields(localFields({ theme: 'crimson' }, {}, 999), remote).take, ['theme'])
+  })
+
+  test('look settings, history and platform sign-ins reach the second device', async () => {
+    const email = `stage2-${now}@example.com`
+    const { session: pc } = await signUp(email, 'password123', dev('pc'))
+    const phone = await logIn(email, 'password123', dev('phone'))
+    await syncSettings(pc, 'look', () => localFields({ theme: 'nord', accent: '#ff4d5e' }, { theme: { json: '"x"', at: 1 }, accent: { json: '"x"', at: 1 } }))
+    const got = await syncSettings(phone, 'look', () => ({ fields: {} }))
+    assert.deepEqual(got.merged.fields.accent.v, '#ff4d5e')
+    // platforms: encrypted with the account key; the other device decrypts them
+    await syncPlatforms(pc, () => localFields({ soundcloud: { id: 1, username: 'me' } }, {}))
+    const plat = await syncPlatforms(phone, () => ({ fields: {} }))
+    assert.deepEqual(plat.merged.fields.soundcloud.v, { id: 1, username: 'me' })
+    // history: a play on the phone shows on the PC
+    const play = { id: 'h1', track: track('1'), startedAt: now, endedAt: now + 60000, segments: [[0, 60]] as [number, number][], listened: 60, duration: 100 }
+    await sendHistory(phone, { entries: [play] })
+    const h = await fetchHistory(pc, 0)
+    assert.deepEqual(h.entries.map((e) => e.id), ['h1'])
+  })
+
+  test('local song relay through the client', async () => {
+    const { session: pc } = await signUp(`relay-${now}@example.com`, 'password123', dev('pc'))
+    const phone = await logIn(`relay-${now}@example.com`, 'password123', dev('phone'))
+    const key = songKey('My Song (Remix)', 'Me, Someone Else')
+    assert.equal(key, songKey('my song remix', 'ME'))
+    await relayReport(phone, [], [{ key, title: 'My Song', artist: 'Me', duration: 100 }])
+    const plan = await relayReport(pc, [{ key, size: 5 }], [])
+    assert.deepEqual(plan.uploads, [key])
+    await relayUpload(pc, key, new Uint8Array([1, 2, 3, 4, 5]), 'audio/mpeg', 'My Song.mp3')
+    const down = await relayDownload(phone, key)
+    assert.equal(down?.name, 'My Song.mp3')
+    assert.deepEqual(down?.bytes, new Uint8Array([1, 2, 3, 4, 5]))
+    await relayDone(phone, key)
+    assert.equal(await relayDownload(phone, key), null)
   })
 
   test('covers upload and come back', async () => {

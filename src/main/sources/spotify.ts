@@ -98,6 +98,15 @@ export class Spotify implements StreamingSource, AccountSource {
     }
   }
 
+  /** For ProjectM accounts: the Client ID travels; the sign-in itself stays per device. */
+  syncedClientId() {
+    return this.store.get().clientId ?? null
+  }
+
+  async useSyncedClientId(clientId: string | null) {
+    if (clientId && clientId !== this.store.get().clientId) await this.store.set({ ...this.store.get(), clientId })
+  }
+
   async logout() {
     const { clientId } = this.store.get()
     await this.store.set({ clientId })
