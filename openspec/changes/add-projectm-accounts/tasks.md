@@ -55,7 +55,7 @@
 ## 8. Stage 2 release
 
 - [x] 8.1 Cross-device check of everything in stage 2 between the PC dev app and the simulator, and verify every scenario in the four specs is covered by a passing test or a recorded manual check
-- [ ] 8.2 Release ProjectM 1.2.0 and ProjectMobile 1.5.0 and verify both releases and the iOS CI
+- [x] 8.2 Release ProjectM 1.2.0 and ProjectMobile 1.5.0 and verify both releases and the iOS CI
 
 ## Workflow follow-up
 
