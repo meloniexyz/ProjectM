@@ -49,12 +49,12 @@
 
 - [x] 7.1 Server: relay table, have/need report endpoint, upload/download through the Worker to KV, delivery confirmation with delete, 250 MB cap, 25 MB per file, 30-day cron, device removal clean-up; verify with the API test script covering each local-file-relay scenario
 - [x] 7.2 ProjectM: report have/need after playlist sync, upload requested songs from the kept copies, download needed songs into the playlist files folder, and show relay progress in Settings → Account; verify between two test profiles that a local song moves across and is deleted from the server after
-- [ ] 7.3 ProjectMobile: the same, following "download on mobile data", and verify the simulator receives a song uploaded by the PC dev app and plays it offline
+- [x] 7.3 ProjectMobile: the same, following "download on mobile data", and verify the simulator receives a song uploaded by the PC dev app and plays it offline
 - [x] 7.4 Verify the "device added later" path: a third test profile logs in after delivery, gets "waiting for another device", and receives the song once a device that has it comes online
 
 ## 8. Stage 2 release
 
-- [ ] 8.1 Cross-device check of everything in stage 2 between the PC dev app and the simulator, and verify every scenario in the four specs is covered by a passing test or a recorded manual check
+- [x] 8.1 Cross-device check of everything in stage 2 between the PC dev app and the simulator, and verify every scenario in the four specs is covered by a passing test or a recorded manual check
 - [ ] 8.2 Release ProjectM 1.2.0 and ProjectMobile 1.5.0 and verify both releases and the iOS CI
 
 ## Workflow follow-up
