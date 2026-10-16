@@ -18,7 +18,7 @@ import { AccountSync } from './account-sync'
 import { AccountExtras, EMPTY_EXTRAS, type ExtrasState } from './account-extras'
 import { setAccountServer } from '../shared/account'
 import { YouTubeMusic } from './sources/youtube'
-import { DEFAULT_SETTINGS, type ListenEntry, type Playlist, type ScanProgress, type Settings, type SourceId } from '../shared/types'
+import { DEFAULT_SETTINGS, type ListenEntry, type Playlist, type ScanProgress, type Settings, type SourceId, type Entity, type EntityKind } from '../shared/types'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } },
@@ -247,6 +247,41 @@ ipcMain.handle('library:showInFolder', (_, id: string) => {
   if (path) shell.showItemInFolder(path)
 })
 ipcMain.handle('sources:search', (_, source: SourceId, query: string) => streamingSource(source).search(query))
+ipcMain.handle('sources:entities', async (_, source: SourceId, query: string, kind: EntityKind) => (await streamingSource(source).searchEntities?.(query, kind)) ?? [])
+// new releases from the people you follow on each platform (Home); refreshed every 3 hours
+let newReleases: { at: number; max: number; list: Promise<{ items: Entity[]; problems: string[] }> } | null = null
+ipcMain.handle('sources:newReleases', (_, force?: boolean, maxMinutes?: number) => {
+  const max = (maxMinutes ?? { ...DEFAULT_SETTINGS, ...settings.get() }.newReleasesMaxMinutes) * 60
+  if (!newReleases || force || newReleases.max !== max || Date.now() - newReleases.at > 3 * 3600_000) {
+    newReleases = {
+      at: Date.now(),
+      max,
+      list: (async () => {
+        const problems: string[] = []
+        const lists = await Promise.all(
+          (['spotify', 'youtube', 'soundcloud'] as SourceId[]).map((id) =>
+            (streaming[id]?.newReleases?.(max) ?? Promise.resolve([])).catch((e: Error) => {
+              console.warn('[new releases]', id, e)
+              if (id === 'spotify' && /403|forbidden|scope|insufficient/i.test(e.message)) problems.push('spotify-permission')
+              return [] as Entity[]
+            }),
+          ),
+        )
+        // newest first; sources without exact dates keep their own order
+        const items = lists.flat().sort((a, b) => (b.releasedAt ?? 0) - (a.releasedAt ?? 0))
+        return { items, problems }
+      })(),
+    }
+  }
+  return newReleases.list
+})
+ipcMain.handle('sources:entityPage', (_, entity: Entity) => {
+  // a single song or video from new releases carries its own track
+  if (entity.tracks?.length) return { tracks: entity.tracks, playlists: [] }
+  const s = streamingSource(entity.source)
+  if (!s.entityPage) throw new Error(`${entity.source} can't open this`)
+  return s.entityPage(entity)
+})
 ipcMain.handle('sources:resolve', (_, source: SourceId, id: string) => streamingSource(source).resolve(id))
 // Same song on another service, for Spotify songs when the Spotify app isn't available.
 ipcMain.handle('sources:match', async (_, t: { title: string; artist: string; duration: number }) => {

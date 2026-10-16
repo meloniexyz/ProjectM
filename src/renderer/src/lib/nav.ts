@@ -1,5 +1,5 @@
 import { createContext, useContext, type RefObject } from 'react'
-import type { SourceId } from '../../../shared/types'
+import type { SourceId, Entity } from '../../../shared/types'
 
 export type View =
   | { kind: 'songs' }
@@ -13,6 +13,7 @@ export type View =
   | { kind: 'liked'; source: SourceId }
   | { kind: 'settings'; tab?: 'general' | 'eq' | 'themes' }
   | { kind: 'remotePlaylist'; source: SourceId; id: string; name: string }
+  | { kind: 'entity'; entity: Entity }
 
 export interface Nav {
   view: View

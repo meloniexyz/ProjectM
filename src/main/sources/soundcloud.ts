@@ -1,4 +1,4 @@
-import type { AccountStatus, RemotePlaylist, SoundCloudProfile, Track } from '../../shared/types'
+import type { AccountStatus, RemotePlaylist, SoundCloudProfile, Track, Entity, EntityKind, EntityPage } from '../../shared/types'
 import type { Secrets } from '../secrets'
 import { bestMatch, scoredMatch, type MatchTarget } from './match'
 import { UA, type AccountSource, type StreamInfo, type StreamingSource } from './types'
@@ -43,6 +43,8 @@ interface Transcoding {
   snipped?: boolean
   format: { protocol: string; mime_type: string }
 }
+const compact = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1).replace(/\.0$/, '')}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n))
+
 interface ScPlaylist {
   id: number
   title: string
@@ -239,6 +241,54 @@ export class SoundCloud implements StreamingSource, AccountSource {
       })
     }
     return out
+  }
+
+  // ---------- profiles and playlists (search tabs) ----------
+
+  async searchEntities(query: string, kind: EntityKind): Promise<Entity[]> {
+    if (kind === 'artist') return [] // on SoundCloud artists are profiles: see Profiles
+    if (kind === 'profile') {
+      const r = await this.api<{ collection: ScUserFull[] }>('/search/users', { q: query, limit: '12' })
+      return r.collection.map((u) => ({ source: 'soundcloud', kind, id: String(u.id), name: u.username, subtitle: `SoundCloud${u.followers_count ? ` · ${compact(u.followers_count)} followers` : ''}${u.city ? ` · ${u.city}` : ''}`, artwork: u.avatar_url?.replace('-large.', '-t500x500.') }))
+    }
+    const r = await this.api<{ collection: ScPlaylist[] }>('/search/playlists', { q: query, limit: '12' })
+    return r.collection.map((p) => ({ source: 'soundcloud', kind, id: String(p.id), name: p.title, subtitle: `by ${p.user?.username ?? ''}${p.track_count ? ` · ${p.track_count} songs` : ''}`, artwork: (p.artwork_url || undefined)?.replace('-large.', '-t500x500.') }))
+  }
+
+  /** Tracks posted in the last 6 weeks by the profiles your connected profile follows. */
+  async newReleases(maxSeconds: number): Promise<Entity[]> {
+    const me = this.profile()
+    if (!me) return []
+    const follows = await this.api<{ collection: ScUserFull[] }>(`/users/${me.id}/followings`, { limit: '60' })
+    const since = Date.now() - 42 * 24 * 3600_000
+    const out: Entity[] = []
+    const users = follows.collection
+    for (let i = 0; i < users.length; i += 6) {
+      const batch = await Promise.all(
+        users.slice(i, i + 6).map((u) => this.api<{ collection: (ScTrack & { created_at?: string })[] }>(`/users/${u.id}/tracks`, { limit: '3' }).catch(() => ({ collection: [] }))),
+      )
+      for (const r of batch)
+        for (const t of r.collection) {
+          const at = Date.parse(t.created_at ?? '')
+          if (!at || at < since || t.policy === 'BLOCK') continue
+          const track = this.toTrack(t)
+          if (maxSeconds && track.duration > maxSeconds) continue
+          out.push({ source: 'soundcloud', kind: 'playlist', id: `track:${t.id}`, name: track.title, subtitle: `New · ${track.artist}`, artwork: track.artwork, releasedAt: at, tracks: [track] })
+        }
+    }
+    return out.sort((a, b) => b.releasedAt! - a.releasedAt!).slice(0, 25)
+  }
+
+  async entityPage(e: Entity): Promise<EntityPage> {
+    if (e.kind === 'playlist') return { tracks: await this.playlistTracks(e.id), playlists: [] }
+    const [tracks, lists] = await Promise.all([
+      this.api<{ collection: ScTrack[] }>(`/users/${e.id}/tracks`, { limit: '50' }),
+      this.api<{ collection: ScPlaylist[] }>(`/users/${e.id}/playlists_without_albums`, { limit: '20' }).catch(() => ({ collection: [] as ScPlaylist[] })),
+    ])
+    return {
+      tracks: tracks.collection.filter((t) => t.policy !== 'BLOCK').map((t) => this.toTrack(t)),
+      playlists: lists.collection.map((p) => ({ source: 'soundcloud' as const, kind: 'playlist' as const, id: String(p.id), name: p.title, subtitle: `${p.track_count ?? 0} songs`, artwork: (p.artwork_url || undefined)?.replace('-large.', '-t500x500.') })),
+    }
   }
 
   async playlistTracks(id: string): Promise<Track[]> {

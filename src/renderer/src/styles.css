@@ -3188,3 +3188,21 @@ kbd {
   opacity: 0.45;
   cursor: default;
 }
+
+/* search tabs: Songs / Artists / Playlists / Profiles */
+.search-tabs {
+  margin-top: 10px;
+}
+.card-art.round .art,
+.card-art.round .art img,
+.hero-art.round,
+.hero-art.round img {
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.card-art.round,
+.hero-art.round {
+  background: transparent;
+  box-shadow: none;
+}

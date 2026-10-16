@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react'
-import type { RemotePlaylist, SourceId, Track } from '../../../shared/types'
+import { EntityCard } from './EntityViews'
+import { useMemo, useState, useEffect } from 'react'
+import type { RemotePlaylist, SourceId, Track, Entity } from '../../../shared/types'
 import { ACCOUNT_SOURCES, accountStore, likedSongs, remotePlaylists, topSongs } from '../lib/accounts'
 import { cls, plural } from '../lib/format'
 import { historyStore, mostPlayed, recentTracks } from '../lib/history'
 import { lib, useAlbums } from '../lib/library'
 import { useNav } from '../lib/nav'
+import { useSettings } from '../lib/settings'
 import { playTracks, usePlayer } from '../lib/player'
 import { SOURCES, useConnections } from '../lib/sources'
 import { useStore } from '../lib/store'
@@ -53,6 +55,7 @@ export function HomeView() {
       )}
 
       <TopSongs connected={connected} />
+      <NewReleases connected={connected} />
       <AllPlaylists connected={connected} />
       <LocalAlbums />
 
@@ -332,6 +335,48 @@ function LocalAlbums() {
             <div className="name">{a.name}</div>
             <div className="sub">{a.artist}</div>
           </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+/** New songs, albums and videos from the people you follow on Spotify, YouTube and SoundCloud. */
+function NewReleases({ connected }: { connected: SourceId[] }) {
+  const nav = useNav()
+  const [data, setData] = useState<{ items: Entity[]; problems: string[] } | null>(null)
+  const maxMinutes = useSettings().newReleasesMaxMinutes
+  const key = `${connected.join(',')}|${maxMinutes}`
+  useEffect(() => {
+    let live = true
+    window.api.sources.newReleases(false, maxMinutes).then(
+      (r) => live && setData(r),
+      () => live && setData({ items: [], problems: [] }),
+    )
+    return () => {
+      live = false
+    }
+  }, [key])
+  const items = data?.items ?? []
+  const needsSpotify = data?.problems.includes('spotify-permission')
+  if (!items.length && !needsSpotify) return null
+  return (
+    <section className="home-section">
+      <div className="home-title-row">
+        <h2 className="home-title">New releases</h2>
+        <span className="settings-hint">From the people you follow</span>
+      </div>
+      {needsSpotify && (
+        <p className="settings-hint">
+          Spotify needs one more permission to see the artists you follow.{' '}
+          <button className="link-btn inline" onClick={() => nav.go({ kind: 'source', source: 'spotify' })}>
+            Reconnect Spotify
+          </button>
+        </p>
+      )}
+      <div className="rail">
+        {items.map((e) => (
+          <EntityCard key={`${e.source}:${e.id}`} entity={e} />
         ))}
       </div>
     </section>

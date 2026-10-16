@@ -18,6 +18,7 @@ import { initLibrary } from './lib/library'
 import { initAccounts } from './lib/accounts'
 import { getSettings } from './lib/settings'
 import { SettingsView } from './components/SettingsView'
+import { EntityView } from './components/EntityViews'
 import { useLogo } from './lib/logos'
 import { NavContext, ScrollContext, type Nav, type View } from './lib/nav'
 import { connectTaskbarButtons, getPlayer, next, prev, setVolume, toggle } from './lib/player'
@@ -180,5 +181,7 @@ function Page({ view }: { view: View }) {
       return <SettingsView tab={view.tab} />
     case 'remotePlaylist':
       return <RemotePlaylistView source={view.source} id={view.id} name={view.name} />
+    case 'entity':
+      return <EntityView entity={view.entity} />
   }
 }

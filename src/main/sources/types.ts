@@ -1,10 +1,16 @@
-import type { AccountStatus, RemotePlaylist, StreamInfo, Track } from '../../shared/types'
+import type { AccountStatus, Entity, EntityKind, EntityPage, RemotePlaylist, StreamInfo, Track } from '../../shared/types'
 
 export type { StreamInfo }
 
 export interface StreamingSource {
   search(query: string, limit?: number): Promise<Track[]>
   resolve(id: string): Promise<StreamInfo>
+  /** artists, public playlists or profiles (search tabs) */
+  searchEntities?(query: string, kind: EntityKind): Promise<Entity[]>
+  /** what opening one shows */
+  entityPage?(entity: Entity): Promise<EntityPage>
+  /** new releases from the people you follow (Home); single songs longer than maxSeconds are left out (0 = any length) */
+  newReleases?(maxSeconds: number): Promise<Entity[]>
 }
 
 /** A source you can sign in to, exposing your own library. */

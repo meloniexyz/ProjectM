@@ -1,5 +1,6 @@
+import { ENTITY_TABS, EntityResults } from './EntityViews'
 import { useEffect, useMemo, useState } from 'react'
-import type { SourceId, Track } from '../../../shared/types'
+import type { SourceId, Track, EntityKind } from '../../../shared/types'
 import { cls, fmtTotal, norm, plural } from '../lib/format'
 import {
   addFolder,
@@ -162,6 +163,8 @@ function useDebounced<T>(value: T, ms: number) {
 export function SearchView({ initial, source }: { initial?: string; source?: SourceId }) {
   const [q, setQ] = useState(initial ?? '')
   const [filter, setFilter] = useState<Filter>(source ?? 'all')
+  // Songs, or artists / playlists / profiles from the chosen platforms
+  const [tab, setTab] = useState<'songs' | EntityKind>('songs')
   const [remote, setRemote] = useState<Partial<Record<SourceId, Remote>>>({})
   const [retry, setRetry] = useState(0)
   const tracks = useStore(lib, (s) => s.tracks)
@@ -221,7 +224,7 @@ export function SearchView({ initial, source }: { initial?: string; source?: Sou
           <input
             autoFocus
             value={q}
-            placeholder={filter === 'all' ? 'Songs, artists, albums' : `Search ${SOURCES[filter].name}`}
+            placeholder={tab === 'songs' ? (filter === 'all' ? 'Songs, artists, albums' : `Search ${SOURCES[filter].name}`) : `Search ${ENTITY_TABS.find((t) => t.kind === tab)!.label.toLowerCase()}`}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') setQ('')
@@ -250,9 +253,21 @@ export function SearchView({ initial, source }: { initial?: string; source?: Sou
             </button>
           ))}
         </div>
+        <div className="chips tabs search-tabs">
+          <button className={cls('chip', tab === 'songs' && 'on')} onClick={() => setTab('songs')}>
+            Songs
+          </button>
+          {ENTITY_TABS.map((t) => (
+            <button key={t.kind} className={cls('chip', tab === t.kind && 'on')} onClick={() => setTab(t.kind)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {!tokens.length ? (
+      {tab !== 'songs' && tokens.length ? (
+        <EntityResults query={query} kind={tab} sources={remoteSources} />
+      ) : !tokens.length ? (
         <Empty
           icon={<SearchIcon size={30} />}
           title={filter === 'all' ? 'Search everything' : `Search ${SOURCES[filter].name}`}

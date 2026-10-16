@@ -1,7 +1,7 @@
 import vm from 'node:vm'
 import { join } from 'node:path'
 import { ClientType, Innertube, Log, Platform, UniversalCache, type OAuth2Tokens } from 'youtubei.js'
-import type { AccountStatus, RemotePlaylist, Track } from '../../shared/types'
+import type { AccountStatus, RemotePlaylist, Track, Entity, EntityKind, EntityPage } from '../../shared/types'
 import type { Secrets } from '../secrets'
 import { bestMatch, scoredMatch, type MatchTarget } from './match'
 import { PoTokenMinter } from './potoken'
@@ -114,6 +114,27 @@ function bigThumb(url?: string) {
 }
 
 /** Shape shared by search results and playlist rows (MusicResponsiveListItem). */
+interface YtEntity {
+  id?: string
+  name?: string
+  title?: { toString(): string }
+  subtitle?: { toString(): string }
+  author?: { name?: string }
+  thumbnails?: { url: string }[]
+}
+interface YtChannel {
+  id?: string
+  author?: { id?: string; name?: string; thumbnails?: { url: string }[] }
+  subscriber_count?: { toString(): string }
+}
+interface YtVideo {
+  id?: string
+  content_id?: string
+  metadata?: { title?: { toString(): string } }
+  title?: { toString(): string }
+  duration?: { seconds: number }
+}
+
 interface ListItem {
   id?: string
   title?: string
@@ -721,6 +742,107 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
       items.push(...(page.items as unknown as ListItem[]))
     }
     return items.map(toTrack).filter((t): t is Track => !!t)
+  }
+
+  // ---------- artists, playlists and channels (search tabs) ----------
+
+  async searchEntities(query: string, kind: EntityKind): Promise<Entity[]> {
+    const yt = await this.yt()
+    if (kind === 'profile') {
+      const r = await yt.search(query, { type: 'channel' })
+      const chans = ((r as unknown as { channels?: YtChannel[] }).channels ?? []).slice(0, 12)
+      return chans.map((c) => ({ source: 'youtube' as const, kind, id: c.id ?? c.author?.id ?? '', name: c.author?.name ?? '', subtitle: `YouTube channel${c.subscriber_count?.toString() ? ` · ${c.subscriber_count.toString()}` : ''}`, artwork: bigThumb(c.author?.thumbnails?.[0]?.url) })).filter((e) => e.id && e.name)
+    }
+    const r = await yt.music.search(query, { type: kind })
+    const items = (kind === 'artist' ? r.artists?.contents : r.playlists?.contents) ?? []
+    return (items as unknown as YtEntity[]).slice(0, 12).map((x) => ({
+      source: 'youtube' as const,
+      kind,
+      id: kind === 'playlist' ? (x.id ?? '').replace(/^VL/, '') : (x.id ?? ''),
+      name: x.name ?? x.title?.toString() ?? '',
+      subtitle: kind === 'artist' ? x.subtitle?.toString() : `by ${x.author?.name ?? 'YouTube Music'}`,
+      artwork: bigThumb(x.thumbnails?.[0]?.url),
+    })).filter((e) => e.id && e.name)
+  }
+
+  /** video id -> whether YouTube files it under Music (a video's category never changes) */
+  private musicCheck = new Map<string, boolean>()
+  private async isMusicVideo(id: string) {
+    const known = this.musicCheck.get(id)
+    if (known !== undefined) return known
+    const yt = await this.yt()
+    const info = await yt.getBasicInfo(id).catch(() => null)
+    const music = info?.basic_info?.category === 'Music'
+    if (info) this.musicCheck.set(id, music)
+    return music
+  }
+
+  /** New uploads from the channels and artists you're subscribed to (needs the YouTube sign-in). */
+  async newReleases(maxSeconds: number): Promise<Entity[]> {
+    if (!this.saved() || !this.usesTv) return []
+    const tiles = await this.tvTiles('FEsubscriptions', 2)
+    const seen = new Set<string>()
+    const now = Date.now()
+    const uploads = tiles.map(tvTrack).filter((t): t is Track => !!t && !seen.has(t.id) && !!seen.add(t.id))
+    // subscriptions include gaming, news and vlogs: keep only song-length videos YouTube files under Music
+    const candidates = uploads.filter((t) => t.duration > 0 && (!maxSeconds || t.duration <= maxSeconds)).slice(0, 40)
+    const music = new Set<string>()
+    for (let i = 0; i < candidates.length; i += 8)
+      await Promise.all(candidates.slice(i, i + 8).map(async (t) => (await this.isMusicVideo(t.id)) && music.add(t.id)))
+    return uploads
+      .filter((t) => music.has(t.id))
+      .slice(0, 25)
+      // the feed is newest first; keep that order when mixed with other platforms
+      .map((t, i) => ({ source: 'youtube' as const, kind: 'playlist' as const, id: `video:${t.id}`, name: t.title, subtitle: `New · ${t.artist}`, artwork: t.artwork, releasedAt: now - i * 3600_000, tracks: [t] }))
+  }
+
+  async entityPage(e: Entity): Promise<EntityPage> {
+    const yt = await this.yt()
+    // an album or single (new releases, an artist's albums)
+    if (e.kind === 'playlist' && e.id.startsWith('MPREb')) {
+      const album = await yt.music.getAlbum(e.id)
+      const header = album.header as unknown as { title?: { toString(): string }; strapline_text_one?: { toString(): string }; author?: { name?: string }; thumbnail?: { contents?: { url: string }[] } }
+      const artist = header?.strapline_text_one?.toString() || header?.author?.name || e.subtitle?.split('•').pop()?.trim() || ''
+      const art = bigThumb(header?.thumbnail?.contents?.[0]?.url ?? e.artwork)
+      const tracks = (album.contents as unknown as ListItem[])
+        .map(toTrack)
+        .filter((t): t is Track => !!t)
+        .map((t) => ({ ...t, artist: t.artist === 'Unknown Artist' && artist ? artist : t.artist, album: header?.title?.toString() ?? t.album, artwork: t.artwork ?? art }))
+      return { tracks, playlists: [] }
+    }
+    if (e.kind === 'playlist') {
+      let page = await yt.music.getPlaylist(e.id)
+      const items: ListItem[] = [...(page.items as unknown as ListItem[])]
+      for (let i = 0; i < 20 && page.has_continuation; i++) {
+        page = await page.getContinuation()
+        items.push(...(page.items as unknown as ListItem[]))
+      }
+      return { tracks: items.map(toTrack).filter((t): t is Track => !!t), playlists: [] }
+    }
+    if (e.kind === 'artist') {
+      const artist = await yt.music.getArtist(e.id)
+      const shelves = artist.sections as unknown as { type: string; title?: { toString(): string }; header?: { title?: { toString(): string } }; contents?: YtEntity[] }[]
+      const songs = shelves.find((s) => s.type === 'MusicShelf')?.contents ?? []
+      const lists = shelves.filter((s) => /album|single|playlist/i.test(s.header?.title?.toString() ?? '')).flatMap((s) => s.contents ?? [])
+      return {
+        tracks: (songs as unknown as ListItem[]).map(toTrack).filter((t): t is Track => !!t),
+        playlists: lists
+          .filter((x) => x.id)
+          .slice(0, 20)
+          .map((x) => ({ source: 'youtube' as const, kind: 'playlist' as const, id: x.id!.replace(/^VL/, ''), name: x.title?.toString() ?? x.name ?? '', subtitle: x.subtitle?.toString(), artwork: bigThumb(x.thumbnails?.[0]?.url) })),
+      }
+    }
+    // a channel: its latest uploads
+    const channel = await yt.getChannel(e.id)
+    const videos = await channel.getVideos().catch(() => null)
+    const list = ((videos?.videos ?? []) as unknown as YtVideo[]).slice(0, 60)
+    return {
+      tracks: list
+        .map((v) => ({ id: v.id ?? v.content_id, title: v.title?.toString() ?? v.metadata?.title?.toString() ?? '', seconds: v.duration?.seconds ?? 0 }))
+        .filter((v) => v.id && v.title)
+        .map((v) => ({ uid: `youtube:${v.id}`, source: 'youtube' as const, id: v.id!, title: v.title, artist: e.name, album: 'YouTube', duration: v.seconds, artwork: `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg` })),
+      playlists: [],
+    }
   }
 
   // ---------- search / matching ----------

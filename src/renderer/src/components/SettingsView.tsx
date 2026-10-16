@@ -143,6 +143,23 @@ export function SettingsView({ tab = 'general' }: { tab?: 'general' | 'eq' | 'th
         <Row label="Show lyrics" hint="Synced lyrics in the Now Playing panel, when available.">
           <Switch on={s.showLyrics} onChange={() => set({ showLyrics: !s.showLyrics })} />
         </Row>
+        <Row
+          label="New releases: longest song"
+          hint="Home → New releases shows new music from the people you follow. Longer uploads (mixes, livestreams, vlogs) are left out; albums always show."
+        >
+          <Select
+            value={String(s.newReleasesMaxMinutes)}
+            onChange={(v) => set({ newReleasesMaxMinutes: Number(v) })}
+            options={[
+              ['5', '5 minutes'],
+              ['8', '8 minutes'],
+              ['10', '10 minutes'],
+              ['15', '15 minutes'],
+              ['30', '30 minutes'],
+              ['0', 'No limit'],
+            ]}
+          />
+        </Row>
       </Section>
 
       <Section title="Local files">

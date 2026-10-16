@@ -16,6 +16,9 @@ import type {
   Track,
   ListenEntry,
   SongInfo,
+  Entity,
+  EntityKind,
+  EntityPage,
 } from '../shared/types'
 
 const api = {
@@ -35,6 +38,11 @@ const api = {
   },
   sources: {
     search: (source: SourceId, query: string): Promise<Track[]> => ipcRenderer.invoke('sources:search', source, query),
+    /** artists, public playlists or profiles on one platform */
+    entities: (source: SourceId, query: string, kind: EntityKind): Promise<Entity[]> => ipcRenderer.invoke('sources:entities', source, query, kind),
+    entityPage: (entity: Entity): Promise<EntityPage> => ipcRenderer.invoke('sources:entityPage', entity),
+    /** new albums and singles (Home) */
+    newReleases: (force?: boolean, maxMinutes?: number): Promise<{ items: Entity[]; problems: string[] }> => ipcRenderer.invoke('sources:newReleases', force, maxMinutes),
     resolve: (source: SourceId, id: string): Promise<StreamInfo> => ipcRenderer.invoke('sources:resolve', source, id),
     /** find the same song on YouTube Music */
     match: (t: { title: string; artist: string; duration: number }): Promise<Track | null> =>
