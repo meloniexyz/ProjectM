@@ -17,7 +17,7 @@ import { AlbumsView, AlbumView, PlaylistView, SearchView, SongsView, SourceView 
 import { initLibrary } from './lib/library'
 import { initAccounts } from './lib/accounts'
 import { getSettings } from './lib/settings'
-import { SettingsView } from './components/SettingsView'
+import { AccountView, SettingsView } from './components/SettingsView'
 import { EntityView } from './components/EntityViews'
 import { useLogo } from './lib/logos'
 import { NavContext, ScrollContext, type Nav, type View } from './lib/nav'
@@ -183,5 +183,7 @@ function Page({ view }: { view: View }) {
       return <RemotePlaylistView source={view.source} id={view.id} name={view.name} />
     case 'entity':
       return <EntityView entity={view.entity} />
+    case 'account':
+      return <AccountView />
   }
 }

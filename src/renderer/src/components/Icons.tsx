@@ -162,6 +162,12 @@ export const ClockIcon = (p: P) => (
     <path d="M12 7v5l3 2" />
   </Svg>
 )
+export const UserIcon = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" />
+  </Svg>
+)
 
 /** Small colored mark identifying where a track comes from. */
 export function SourceBadge({ source, size = 16 }: { source: SourceId; size?: number }) {

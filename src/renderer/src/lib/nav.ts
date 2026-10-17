@@ -14,6 +14,7 @@ export type View =
   | { kind: 'settings'; tab?: 'general' | 'eq' | 'themes' }
   | { kind: 'remotePlaylist'; source: SourceId; id: string; name: string }
   | { kind: 'entity'; entity: Entity }
+  | { kind: 'account' }
 
 export interface Nav {
   view: View

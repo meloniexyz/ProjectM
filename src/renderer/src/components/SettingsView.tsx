@@ -13,7 +13,7 @@ import { updateSettings, useSettings } from '../lib/settings'
 import { SOURCES } from '../lib/sources'
 import { useStore } from '../lib/store'
 import { toast } from '../lib/ui'
-import { SourceBadge } from './Icons'
+import { SourceBadge, UserIcon } from './Icons'
 import { clearListenHistory } from './HistoryView'
 import { EqualizerPanel } from './Equalizer'
 import { ThemesPanel } from './ThemesPanel'
@@ -332,7 +332,6 @@ const ago = (t: number) => {
   return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : new Date(t).toLocaleString()
 }
 
-/** Your ProjectM playlists on every PC and phone, through a private GitHub repo. */
 /** Your ProjectM account: playlists (and more) on every PC and phone you log in on. */
 function AccountRows() {
   const a = useProjectMAccount()
@@ -437,6 +436,45 @@ function AccountRows() {
         </div>
       </Row>
     </>
+  )
+}
+
+/** Sidebar → Account: the ProjectM account you're logged in with, and your platform sign-ins. */
+export function AccountView() {
+  const a = useProjectMAccount()
+  return (
+    <div className="settings">
+      <div className="account-head">
+        <AccountAvatar email={a.loggedIn || a.needsLogin ? a.email : undefined} size={64} />
+        <div>
+          <h1>{a.loggedIn && a.email ? a.email : 'Account'}</h1>
+          <div className="settings-hint">
+            {a.loggedIn ? 'Logged in to ProjectM on this PC' : a.needsLogin ? 'Logged out, log in again to keep syncing' : 'Not logged in'}
+          </div>
+        </div>
+      </div>
+      <Section title="ProjectM account">
+        <AccountRows />
+      </Section>
+      <Section title="Platforms">
+        {ACCOUNT_SOURCES.map((src) => (
+          <AccountRow key={src} source={src} />
+        ))}
+      </Section>
+    </div>
+  )
+}
+
+/** The first letter of the account's email on the accent colour, or a person outline when logged out. */
+export function AccountAvatar({ email, size = 24 }: { email?: string; size?: number }) {
+  return email ? (
+    <span className="account-avatar" style={{ width: size, height: size, fontSize: size * 0.45 }}>
+      {email[0]!.toUpperCase()}
+    </span>
+  ) : (
+    <span className="account-avatar no-account" style={{ width: size, height: size }}>
+      <UserIcon size={size >= 40 ? size * 0.6 : size} />
+    </span>
   )
 }
 

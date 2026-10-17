@@ -4,6 +4,8 @@ import { createPlaylist, deletePlaylist, lib, openPlaylistEditor } from '../lib/
 import { useNav } from '../lib/nav'
 import { playTracks } from '../lib/player'
 import { accountStore } from '../lib/accounts'
+import { useProjectMAccount } from '../lib/account'
+import { AccountAvatar } from './SettingsView'
 import { isConnected, SOURCE_ORDER, SOURCES, useConnections } from '../lib/sources'
 import { useStore } from '../lib/store'
 import { openMenu } from '../lib/ui'
@@ -32,9 +34,10 @@ export function Sidebar() {
   const accounts = useStore(accountStore, (s) => s.accounts)
   const likedCounts = useStore(likedCountStore, (s) => s.counts)
   const likedSources = ACCOUNT_SOURCES.filter((s) => accounts[s]?.connected)
+  const pm = useProjectMAccount()
 
-  const item = (active: boolean, icon: ReactNode, label: string, onClick: () => void, extra?: ReactNode) => (
-    <button className={cls('side-item', active && 'active')} onClick={onClick}>
+  const item = (active: boolean, icon: ReactNode, label: string, onClick: () => void, extra?: ReactNode, title?: string) => (
+    <button className={cls('side-item', active && 'active')} onClick={onClick} title={title}>
       {icon}
       <span className="label">{label}</span>
       {extra}
@@ -49,6 +52,18 @@ export function Sidebar() {
         {item(v.kind === 'songs', <MusicIcon />, 'Songs', () => nav.go({ kind: 'songs' }))}
         {item(v.kind === 'albums' || v.kind === 'album', <DiscIcon />, 'Albums', () => nav.go({ kind: 'albums' }))}
         {item(v.kind === 'history', <ClockIcon />, 'History', () => nav.go({ kind: 'history' }))}
+        {item(
+          v.kind === 'account',
+          <AccountAvatar email={pm.loggedIn || pm.needsLogin ? pm.email : undefined} size={20} />,
+          pm.loggedIn && pm.email ? pm.email.split('@')[0]! : 'Account',
+          () => nav.go({ kind: 'account' }),
+          pm.needsLogin ? (
+            <span className="pill">Log in</span>
+          ) : pm.loggedIn && pm.error ? (
+            <span className="warn-dot" title={`Couldn't sync: ${pm.error}`} />
+          ) : undefined,
+          pm.loggedIn ? pm.email : undefined,
+        )}
       </div>
 
       {likedSources.length > 0 && (

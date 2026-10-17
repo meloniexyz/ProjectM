@@ -3206,3 +3206,37 @@ kbd {
   background: transparent;
   box-shadow: none;
 }
+
+/* Sidebar → Account */
+.warn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f5a524;
+  box-shadow: 0 0 0 3px rgba(245, 165, 36, 0.15);
+}
+.account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  line-height: 1;
+}
+.account-avatar.no-account {
+  background: transparent;
+  color: currentColor;
+}
+.account-head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+.account-head h1 {
+  margin: 0;
+  word-break: break-all;
+}
