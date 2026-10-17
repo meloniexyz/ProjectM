@@ -18,6 +18,7 @@ import { AccountSync } from './account-sync'
 import { AccountExtras, EMPTY_EXTRAS, type ExtrasState } from './account-extras'
 import { setAccountServer } from '../shared/account'
 import { YouTubeMusic } from './sources/youtube'
+import { checkForUpdate, installUpdate, type UpdateInfo } from './updater'
 import { DEFAULT_SETTINGS, type ListenEntry, type Playlist, type ScanProgress, type Settings, type SourceId, type Entity, type EntityKind } from '../shared/types'
 
 protocol.registerSchemesAsPrivileged([
@@ -366,6 +367,8 @@ ipcMain.handle('settings:set', async (_, patch: Partial<Settings>) => {
   if ('openAtLogin' in patch) applyOpenAtLogin(next.openAtLogin)
   return next
 })
+ipcMain.handle('update:check', () => checkForUpdate())
+ipcMain.handle('update:install', (e, u: UpdateInfo) => installUpdate(u, e.sender))
 ipcMain.handle('app:info', () => ({ version: app.getVersion(), dataDir, electron: process.versions.electron }))
 ipcMain.handle('app:openDataFolder', () => shell.openPath(dataDir))
 ipcMain.handle('app:setIcon', async (_, dataUrl: string) => {

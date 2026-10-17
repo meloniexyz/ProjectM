@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { UpdateInfo } from '../main/updater'
 import type { AccountDevice } from '../shared/account'
 import type { ProjectMAccountStatus } from '../main/account-sync'
 import type {
@@ -121,6 +122,19 @@ const api = {
     },
     onPlatforms: (fn: () => void) => {
       ipcRenderer.on('platforms:changed', () => fn())
+    },
+  },
+  update: {
+    /** a newer ProjectM on GitHub, or null */
+    check: (): Promise<UpdateInfo | null> => ipcRenderer.invoke('update:check'),
+    /** downloads and runs the installer; ProjectM closes and reopens updated */
+    install: (u: UpdateInfo): Promise<void> => ipcRenderer.invoke('update:install', u),
+    onProgress: (fn: (p: number) => void) => {
+      const listener = (_: unknown, p: number) => fn(p)
+      ipcRenderer.on('update:progress', listener)
+      return () => {
+        ipcRenderer.removeListener('update:progress', listener)
+      }
     },
   },
   app: {

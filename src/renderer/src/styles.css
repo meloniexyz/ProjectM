@@ -3240,3 +3240,31 @@ kbd {
   margin: 0;
   word-break: break-all;
 }
+
+/* update offer on start */
+.update-notes {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.update-notes li + li {
+  margin-top: 4px;
+}
+.update-more {
+  font-size: 13px;
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+.update-more:hover {
+  text-decoration: underline;
+}
+.update-progress {
+  margin-bottom: 14px;
+}
+.update-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

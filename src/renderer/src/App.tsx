@@ -12,6 +12,7 @@ import { HistoryView } from './components/HistoryView'
 import { startListenLog } from './lib/listenLog'
 import { EditPlaylistHost } from './components/EditPlaylist'
 import { AccountDialogHost } from './components/AccountDialog'
+import { UpdateDialogHost } from './components/UpdateDialog'
 import { accountStore, initAccount, openAccountDialog, shouldPromptAccount } from './lib/account'
 import { AlbumsView, AlbumView, PlaylistView, SearchView, SongsView, SourceView } from './components/Views'
 import { initLibrary } from './lib/library'
@@ -149,6 +150,7 @@ export function App() {
           <PlayerBar panel={panel} onTogglePanel={togglePanel} />
           <EditPlaylistHost />
           <AccountDialogHost />
+          <UpdateDialogHost />
           <ContextMenuHost />
           <Toasts />
         </div>
