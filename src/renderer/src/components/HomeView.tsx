@@ -54,9 +54,9 @@ export function HomeView() {
         </section>
       )}
 
+      <AllPlaylists connected={connected} />
       <TopSongs connected={connected} />
       <NewReleases connected={connected} />
-      <AllPlaylists connected={connected} />
       <LocalAlbums />
 
       {missing.length > 0 && (
