@@ -1,3 +1,5 @@
+import { greetingName, pickGreeting } from '../../../shared/greeting'
+import { useProjectMAccount } from '../lib/account'
 import { EntityCard } from './EntityViews'
 import { useMemo, useState, useEffect } from 'react'
 import type { RemotePlaylist, SourceId, Track, Entity } from '../../../shared/types'
@@ -16,12 +18,15 @@ import { Artwork, Bars, PlaylistArt } from './common'
 import { PlayIcon, SourceBadge } from './Icons'
 import { trackMenu } from './trackMenu'
 
-function greeting() {
-  const h = new Date().getHours()
-  return h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
+/** A new greeting each time Home opens, fitting the time of day, with your name (see shared/greeting.ts). */
+function useGreeting() {
+  const a = useProjectMAccount()
+  const name = a.loggedIn ? greetingName(a.profile?.displayName, a.profile?.handle) : null
+  return useMemo(() => pickGreeting(name), [name])
 }
 
 export function HomeView() {
+  const greeting = useGreeting()
   useConnections()
   const entries = useStore(historyStore, (s) => s.entries)
   const statuses = useStore(accountStore, (s) => s.accounts)
@@ -33,7 +38,7 @@ export function HomeView() {
   return (
     <div className="home">
       <header className="home-head">
-        <h1>{greeting()}</h1>
+        <h1>{greeting}</h1>
         <div className="home-sources">
           {(['local', ...connected] as SourceId[]).map((s) => (
             <span key={s} className="source-pill">
