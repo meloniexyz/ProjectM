@@ -1,7 +1,7 @@
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import * as account from '../shared/account'
-import type { AccountSession, FieldDoc } from '../shared/account'
+import type { AccountSession, FieldDoc, SongMatch } from '../shared/account'
 import type { ListenEntry, Playlist, Settings, Track } from '../shared/types'
 import type { JsonFile } from './json-file'
 
@@ -46,6 +46,8 @@ export interface ExtrasHost {
   localFile: (track: Track) => string | undefined
   /** stores a received song as a playlist copy for the given track id */
   keepReceived: (trackId: string, bytes: Uint8Array, ext: string) => Promise<void>
+  /** which recording each Spotify song plays from (the first pick on any device wins) */
+  matches: { get: () => Record<string, SongMatch>; set: (all: Record<string, SongMatch>) => Promise<void> }
   relayStatus: (s: { waitingForDevice: number; waitingForSpace: number; inTransitBytes: number; sending: number; receiving: number }) => void
 }
 
@@ -90,7 +92,13 @@ export class AccountExtras {
     await this.syncSettings(session, 'sound', SOUND_KEYS)
     await this.syncHistory(session)
     await this.syncPlatforms(session)
+    await this.syncMatches(session)
     await this.syncRelay(session).catch((e) => console.warn('[account] relay', e))
+  }
+
+  private async syncMatches(session: AccountSession) {
+    const r = await account.syncMatches(session, () => this.host.matches.get())
+    if (Object.keys(r.take).length) await this.host.matches.set({ ...this.host.matches.get(), ...r.take })
   }
 
   private async syncSettings(session: AccountSession, kind: 'look' | 'sound', keys: readonly (keyof Settings)[]) {

@@ -56,6 +56,13 @@ export function trackMenu(tracks: Track[], nav: Nav, inPlaylist?: { id: string; 
     }
     const url = webUrl(one)
     if (url) items.push({ label: 'Open in browser', onClick: () => window.open(url) })
+    if (one.source === 'spotify') {
+      items.push({
+        label: 'Wrong version? Find it again',
+        onClick: () =>
+          window.api.sources.redoMatch(one.uid).then(() => toast('Next time it plays from YouTube Music or SoundCloud, ProjectM searches again, on all your devices')),
+      })
+    }
   }
   return items
 }

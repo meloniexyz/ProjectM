@@ -16,10 +16,10 @@ import { getSongInfo } from './songinfo'
 import { Secrets } from './secrets'
 import { AccountSync } from './account-sync'
 import { AccountExtras, EMPTY_EXTRAS, type ExtrasState } from './account-extras'
-import { setAccountServer } from '../shared/account'
+import { setAccountServer, type SongMatch } from '../shared/account'
 import { YouTubeMusic } from './sources/youtube'
 import { checkForUpdate, installUpdate, type UpdateInfo } from './updater'
-import { DEFAULT_SETTINGS, type ListenEntry, type Playlist, type ScanProgress, type Settings, type SourceId, type Entity, type EntityKind } from '../shared/types'
+import { DEFAULT_SETTINGS, type ListenEntry, type Playlist, type ScanProgress, type Settings, type SourceId, type Entity, type EntityKind, type Track } from '../shared/types'
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } },
@@ -50,6 +50,10 @@ const keptFiles = new KeptFiles(dataDir)
 const settings = new JsonFile<Settings>(join(dataDir, 'settings.json'), DEFAULT_SETTINGS)
 const secrets = new Secrets(join(dataDir, 'accounts.json'))
 const listenHistory = new ListenHistory(join(dataDir, 'history.json'))
+/** the recording each Spotify song plays from when the Spotify app can't play it (synced, first pick wins) */
+const songMatches = new JsonFile<Record<string, SongMatch>>(join(dataDir, 'song-matches.json'), {})
+/** songs marked "wrong version": uid -> the recording to avoid when searching again */
+const redoMatches = new JsonFile<Record<string, string>>(join(dataDir, 'song-matches-redo.json'), {})
 const youtube = new YouTubeMusic(join(dataDir, 'cache'), secrets)
 const spotify = new Spotify(join(dataDir, 'spotify.json'))
 const soundcloud = new SoundCloud(secrets)
@@ -113,6 +117,7 @@ accountSync.extras = new AccountExtras(new JsonFile<ExtrasState>(join(dataDir, '
     await keptFiles.addReceived(id, t?.title ?? id, t?.artist ?? '', bytes, ext)
     accountSync.markKept([id])
   },
+  matches: { get: () => songMatches.get(), set: (all) => songMatches.set(all) },
   relayStatus: (r) => accountSync.setRelayStatus(r),
 })
 listenHistory.onChange = (c) => {
@@ -305,10 +310,10 @@ const effectiveKbps = (s: StreamInfo) => (s.kbps ?? 96) * CODEC_EFFICIENCY[s.cod
  * only real matches (same artist, length within 15 s) are kept, and their actual streams are
  * compared. When they're about equal (within 8%), the closer match wins.
  */
-ipcMain.handle('sources:bestAlternative', async (_, t: { title: string; artist: string; duration: number }) => {
+async function bestAlternative(t: { title: string; artist: string; duration: number }, services: ('youtube' | 'soundcloud')[] = ['youtube', 'soundcloud'], skip?: string) {
   const candidates = await Promise.all(
-    ([['youtube', youtube], ['soundcloud', soundcloud]] as const).map(async ([id, source]) => {
-      const m = await source.matchScored(t).catch(() => null)
+    services.map(async (id) => {
+      const m = await (id === 'youtube' ? youtube : soundcloud).matchScored(t, skip).catch(() => null)
       if (!m) return null
       const stream = await streamingSource(id).resolve(m.track.id).catch(() => null)
       return stream ? { track: m.track, stream, score: m.score, quality: effectiveKbps(stream) } : null
@@ -321,7 +326,50 @@ ipcMain.handle('sources:bestAlternative', async (_, t: { title: string; artist: 
     return Math.abs(q) > Math.max(a.quality, b.quality) * 0.08 ? q : b.score - a.score
   })
   return { track: found[0].track, stream: found[0].stream, considered: found.map((c) => `${c.track.source}: ${c.stream.quality}`) }
-})
+}
+ipcMain.handle('sources:bestAlternative', (_, t: { title: string; artist: string; duration: number }, services?: ('youtube' | 'soundcloud')[]) => bestAlternative(t, services))
+
+/**
+ * What a Spotify song plays from when the Spotify app can't play it. The first recording picked on
+ * any device is kept in the account, so the PC and the phone play the same version every time.
+ * If that recording can't play right now (say YouTube refuses), the other service fills in without
+ * changing the pick.
+ */
+ipcMain.handle('sources:spotifyCopy', (_, t: Track) => spotifyCopy(t))
+async function spotifyCopy(t: Track): Promise<{ track: Track; stream: StreamInfo } | null> {
+  const avoid = redoMatches.get()[t.uid]
+  const known = avoid !== undefined ? undefined : songMatches.get()[t.uid]
+  if (known) {
+    const stream = await streamingSource(known.source).resolve(known.id).catch(() => null)
+    const track: Track = { uid: `${known.source}:${known.id}`, source: known.source, id: known.id, title: known.title, artist: known.artist, album: '', duration: known.duration, artwork: known.artwork }
+    if (stream) return { track, stream }
+    return bestAlternative(t, [known.source === 'youtube' ? 'soundcloud' : 'youtube'])
+  }
+  const best = await bestAlternative(t, undefined, avoid || undefined)
+  const prev = songMatches.get()[t.uid]
+  if (!best && avoid !== undefined) {
+    // "wrong version", but there's no other version anywhere: keep playing the one we had
+    const r = { ...redoMatches.get() }
+    delete r[t.uid]
+    await redoMatches.set(r)
+    return prev ? spotifyCopy(t) : null
+  }
+  if (best && (!prev || avoid !== undefined)) {
+    // the first pick, or a "wrong version" fix that replaces it on every device
+    const m = best.track
+    const pick: SongMatch = { source: m.source as 'youtube' | 'soundcloud', id: m.id, title: m.title, artist: m.artist, duration: m.duration, artwork: m.artwork, at: prev?.at ?? Date.now() }
+    await songMatches.set({ ...songMatches.get(), [t.uid]: avoid !== undefined ? { ...pick, fixed: Date.now() } : pick })
+    if (avoid !== undefined) {
+      const r = { ...redoMatches.get() }
+      delete r[t.uid]
+      await redoMatches.set(r)
+    }
+    accountSync.soon()
+  }
+  return best
+}
+/** "Wrong version": the next play searches again, skipping this recording, and the new pick replaces it everywhere. */
+ipcMain.handle('sources:redoMatch', (_, uid: string) => redoMatches.set({ ...redoMatches.get(), [uid]: songMatches.get()[uid]?.id ?? '' }))
 ipcMain.handle('account:status', (_, s: SourceId) => account(s).status())
 ipcMain.handle('account:login', (_, s: SourceId, arg?: string) => account(s).login(arg))
 ipcMain.handle('account:cancel', () => youtube.cancelLogin())
@@ -510,7 +558,7 @@ ipcMain.handle('playlists:pickCover', async () => {
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark'
   Menu.setApplicationMenu(null)
-  await Promise.all([library.load(), playlists.load(), keptFiles.load(), spotify.load(), secrets.load(), windowState.load(), settings.load(), listenHistory.load()])
+  await Promise.all([library.load(), playlists.load(), keptFiles.load(), spotify.load(), secrets.load(), windowState.load(), settings.load(), listenHistory.load(), songMatches.load(), redoMatches.load()])
   await accountSync.load()
   protocol.handle('media', (req) => handleMedia(req, library, youtube, keptFiles))
   createWindow()

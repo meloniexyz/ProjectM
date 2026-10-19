@@ -2,7 +2,7 @@
 // `npx wrangler dev --port 8799 --local`, then `API=http://127.0.0.1:8799 npm test` here.
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { changePassword, downloadCover, fetchHistory, knownFrom, localFields, logIn, mergeFields, ownerReset, recover, relayDone, relayDownload, relayReport, relayUpload, sendHistory, setAccountServer, signUp, songKey, syncPlatforms, syncPlaylists, syncSettings, uploadCover, type AccountSession } from '../src/shared/account'
+import { changePassword, downloadCover, fetchHistory, knownFrom, localFields, logIn, mergeFields, mergeMatches, syncMatches, type SongMatch, ownerReset, recover, relayDone, relayDownload, relayReport, relayUpload, sendHistory, setAccountServer, signUp, songKey, syncPlatforms, syncPlaylists, syncSettings, uploadCover, type AccountSession } from '../src/shared/account'
 import type { Playlist, Track } from '../src/shared/types'
 
 const API = process.env.API
@@ -121,6 +121,26 @@ describe('account client', { skip: !API && 'set API (wrangler dev of projectm-se
     await sendHistory(phone, { entries: [play] })
     const h = await fetchHistory(pc, 0)
     assert.deepEqual(h.entries.map((e) => e.id), ['h1'])
+  })
+
+  test('song matches: the first pick on any device wins, everywhere', async () => {
+    const m = (id: string, at: number): SongMatch => ({ source: 'youtube', id, title: 'T', artist: 'A', duration: 100, at })
+    // merge rules alone
+    const r = mergeMatches({ s1: m('later', 20), s2: m('mine', 5) }, { s1: m('first', 10) })
+    assert.equal(r.merged.s1.id, 'first')
+    assert.equal(r.merged.s2.id, 'mine')
+    assert.deepEqual(Object.keys(r.take), ['s1'])
+    assert.ok(r.upload)
+    assert.equal(mergeMatches({ s1: m('first', 10) }, { s1: m('first', 10) }).upload, null)
+    // through the server: the phone picked first, the PC picked a different recording later
+    const email = `match-${Date.now()}@example.com`
+    const { session: pc } = await signUp(email, 'password123', dev('pc'))
+    const phone = await logIn(email, 'password123', dev('phone'))
+    await syncMatches(phone, () => ({ 'spotify:x': m('phone-pick', 1000) }))
+    const got = await syncMatches(pc, () => ({ 'spotify:x': m('pc-pick', 2000) }))
+    assert.equal(got.take['spotify:x'].id, 'phone-pick')
+    const again = await syncMatches(phone, () => ({ 'spotify:x': m('phone-pick', 1000) }))
+    assert.equal(again.merged['spotify:x'].id, 'phone-pick')
   })
 
   test('local song relay through the client', async () => {

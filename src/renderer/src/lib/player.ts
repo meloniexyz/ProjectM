@@ -6,7 +6,7 @@ import { connectAudio, resumeAudio, setEq, setMediaElement, setNormalizeEnabled,
 import { BAND_LAYOUTS } from './eq'
 import { getSettings, LOUDNESS_LUFS, settingsStore, updateSettings } from './settings'
 import { shuffled } from './format'
-import { cleanError, resolveStream } from './sources'
+import { cleanError, resolveStream, searchSource } from './sources'
 import { toast } from './ui'
 
 export interface QueueItem {
@@ -293,8 +293,8 @@ async function load(autoplay: boolean) {
       emit({ playing: false, buffering: false })
       return
     }
-    // known to be closed: go straight to YouTube Music / SoundCloud (no waiting on Spotify at song start)
-    if (getSettings().spotifyPlayback === 'alternatives' || spotifyAppOpen === false) {
+    // Spotify only when it's known to be open; never wait on a check while a song starts
+    if (getSettings().spotifyPlayback === 'alternatives' || spotifyAppOpen !== true) {
       return playFallback(item.track, seq)
     }
     return spotifyStart(item.track, seq, startAt)
@@ -306,13 +306,18 @@ async function load(autoplay: boolean) {
   try {
     stream = await resolveStream(item.track)
   } catch (err) {
-    if (seq === loadSeq) fail(item.track, err)
+    if (seq !== loadSeq) return
+    // a YouTube song YouTube won't give us: the same recording from SoundCloud, or as a last resort the Spotify app
+    if (item.track.source === 'youtube') return playElsewhere(item.track, seq, err)
+    fail(item.track, err)
     return
   }
   if (seq !== loadSeq || !(await attach(stream, seq, item.track))) return
   if (startAt) audio.currentTime = startAt
   emit({ activeKey: item.key, position: startAt }, false)
   if (autoplay) audio.play().catch(() => {}) // real failures arrive via the 'error' event
+  checkSpotifyLater(seq, item.track.duration)
+  prepareNextSpotifyCopy()
 }
 
 function fail(track: Track, err: unknown) {
@@ -406,14 +411,18 @@ async function spotifyStart(track: Track, seq: number, positionSec = 0) {
   }, 1000)
 }
 
-/** Is the Spotify app open: null until known. Only checked mid-song, never while a song is starting. */
+/** Is the Spotify app open: null until known. Checked at launch and mid-song, never while a song is starting. */
 let spotifyAppOpen: boolean | null = null
+setTimeout(() => {
+  if (getSettings().spotifyPlayback !== 'alternatives') sp.appOpen().then((open) => (spotifyAppOpen = open), () => {})
+}, 1500)
 let fallbackNoticeShown = false
 let songsSinceSpotifyCheck = 0
 
 /**
- * While Spotify songs play from YouTube Music / SoundCloud, look for the Spotify app every
- * second song, a little way into it, so opening Spotify takes over from the next song on.
+ * While songs play here (not through the Spotify app), look for the Spotify app every second song,
+ * a little way into it, so opening Spotify takes over from the next Spotify song on. Song starts
+ * never wait on it.
  */
 function checkSpotifyLater(seq: number, duration: number) {
   if (getSettings().spotifyPlayback === 'alternatives' || ++songsSinceSpotifyCheck < 2) return
@@ -421,6 +430,7 @@ function checkSpotifyLater(seq: number, duration: number) {
   setTimeout(() => {
     if (seq !== loadSeq) return // skipped before then: the next song checks instead
     songsSinceSpotifyCheck = 0
+    console.info('[spotify] looking for the Spotify app (mid-song)')
     sp.appOpen().then(
       (open) => (spotifyAppOpen = open),
       () => {}, // offline or signed out: keep what we knew
@@ -439,8 +449,8 @@ async function playFallback(track: Track, seq: number) {
   }
   let stream: StreamInfo
   try {
-    // searches both YouTube Music and SoundCloud and picks the better-sounding stream
-    const best = await window.api.sources.bestAlternative({ title: track.title, artist: track.artist, duration: track.duration })
+    // the recording this song first played from on any of your devices, else the best match
+    const best = await window.api.sources.spotifyCopy(track)
     if (seq !== loadSeq) return
     if (!best) throw new Error("Spotify app isn't available and no match was found on YouTube Music or SoundCloud")
     emit({ via: best.track.source })
@@ -453,6 +463,41 @@ async function playFallback(track: Track, seq: number) {
   emit({ activeKey: state.queue[state.index]?.key ?? null, position: 0 }, false)
   audio.play().catch(() => {})
   checkSpotifyLater(seq, track.duration)
+  prepareNextSpotifyCopy()
+}
+
+/** YouTube refused a song: play the same recording from SoundCloud, else through the Spotify app if it's open. */
+async function playElsewhere(track: Track, seq: number, why: unknown) {
+  const t = { title: track.title, artist: track.artist, duration: track.duration }
+  const sc = await window.api.sources.bestAlternative(t, ['soundcloud']).catch(() => null)
+  if (seq !== loadSeq) return
+  if (sc) {
+    emit({ via: 'soundcloud' })
+    if (!(await attach(sc.stream, seq, track))) return
+    emit({ activeKey: state.queue[state.index]?.key ?? null, position: 0 }, false)
+    audio.play().catch(() => {})
+    checkSpotifyLater(seq, track.duration)
+    return
+  }
+  if (spotifyAppOpen === true) {
+    const found = (await searchSource('spotify', `${track.artist} ${track.title}`).catch(() => [])).find(
+      (s) => s.title.toLowerCase().includes(track.title.toLowerCase().slice(0, 12)) && (!track.duration || Math.abs(s.duration - track.duration) <= 5),
+    )
+    if (seq !== loadSeq) return
+    if (found) {
+      engine = 'spotify'
+      emit({ via: 'spotify' })
+      return spotifyStart(found, seq)
+    }
+  }
+  fail(track, cleanError(why))
+}
+
+/** If the next song is a Spotify song that will play from YouTube Music / SoundCloud, find it now so it starts without a pause. */
+function prepareNextSpotifyCopy() {
+  const next = state.queue[state.index + 1]?.track
+  if (next?.source !== 'spotify' || (getSettings().spotifyPlayback !== 'alternatives' && spotifyAppOpen === true)) return
+  setTimeout(() => window.api.sources.spotifyCopy(next).catch(() => {}), 4000)
 }
 
 /** Lets the next Spotify song try the Spotify app again (e.g. after the user opened it). */

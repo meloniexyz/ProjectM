@@ -49,12 +49,14 @@ const api = {
     match: (t: { title: string; artist: string; duration: number }): Promise<Track | null> =>
       ipcRenderer.invoke('sources:match', t),
     /** best-sounding match on YouTube Music or SoundCloud, with its stream ready to play */
-    bestAlternative: (t: {
-      title: string
-      artist: string
-      duration: number
-    }): Promise<{ track: Track; stream: StreamInfo; considered: string[] } | null> =>
-      ipcRenderer.invoke('sources:bestAlternative', t),
+    bestAlternative: (
+      t: { title: string; artist: string; duration: number },
+      services?: ('youtube' | 'soundcloud')[],
+    ): Promise<{ track: Track; stream: StreamInfo; considered: string[] } | null> => ipcRenderer.invoke('sources:bestAlternative', t, services),
+    /** what a Spotify song plays from without the Spotify app: the account's first pick, else the best match */
+    spotifyCopy: (t: Track): Promise<{ track: Track; stream: StreamInfo } | null> => ipcRenderer.invoke('sources:spotifyCopy', t),
+    /** "wrong version": search again next time it plays without the Spotify app */
+    redoMatch: (uid: string): Promise<void> => ipcRenderer.invoke('sources:redoMatch', uid),
   },
   accounts: {
     status: (s: SourceId): Promise<AccountStatus> => ipcRenderer.invoke('account:status', s),

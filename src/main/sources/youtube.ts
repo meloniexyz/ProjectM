@@ -862,8 +862,9 @@ export class YouTubeMusic implements StreamingSource, AccountSource {
     return bestMatch(t, await this.search(`${t.artist.split(',')[0].trim()} ${t.title}`, 10))
   }
 
-  async matchScored(t: MatchTarget) {
-    return scoredMatch(t, await this.search(`${t.artist.split(',')[0].trim()} ${t.title}`, 10))
+  /** `skip`: a recording marked as the wrong version */
+  async matchScored(t: MatchTarget, skip?: string) {
+    return scoredMatch(t, (await this.search(`${t.artist.split(',')[0].trim()} ${t.title}`, 10)).filter((c) => c.id !== skip))
   }
 
   // ---------- streaming ----------

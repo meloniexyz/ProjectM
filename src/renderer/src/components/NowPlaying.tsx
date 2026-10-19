@@ -59,8 +59,8 @@ export function NowPlaying({ onClose, onOpenQueue }: { onClose: () => void; onOp
             {quality && <div className="quality-chip">{quality}</div>}
             {via && (
               <div className="np-via">
-                <SourceBadge source={via} size={13} /> Playing from {SOURCES[via].name} because the Spotify app isn't
-                available on this PC
+                <SourceBadge source={via} size={13} /> Playing from {SOURCES[via].name} because{' '}
+                {track.source === 'youtube' ? "YouTube wouldn't play this song" : "the Spotify app isn't available on this PC"}
               </div>
             )}
           </div>

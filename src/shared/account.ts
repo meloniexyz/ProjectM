@@ -150,7 +150,7 @@ export async function deleteAccount(s: AccountSession, password: string) {
 
 // ---------- synced documents ----------
 
-type DocKind = 'playlists' | 'look' | 'sound' | 'history' | 'platforms'
+type DocKind = 'playlists' | 'look' | 'sound' | 'history' | 'platforms' | 'matches'
 interface Doc<T> {
   version: number
   data: T
@@ -268,6 +268,53 @@ export function syncPlatforms(s: AccountSession, local: () => FieldDoc) {
     }
     const r = mergeFields(local(), open)
     return { upload: r.upload ? { sealed: sealJson(key, r.upload) } : null, result: r }
+  })
+}
+
+// ---------- which recording plays a Spotify song ----------
+
+/**
+ * The YouTube Music or SoundCloud recording a Spotify song plays from when Spotify itself can't play
+ * it. The first one any device picked (`at`) is kept, so every PC and phone plays the same version.
+ */
+export interface SongMatch {
+  source: 'youtube' | 'soundcloud'
+  id: string
+  title: string
+  artist: string
+  duration: number
+  artwork?: string
+  at: number
+  /** set when someone said the earlier pick was the wrong version: the newest correction wins over the first pick */
+  fixed?: number
+}
+
+/** Which of two picks for a song stays: a newer correction, else the first pick. */
+const keeps = (a: SongMatch, b: SongMatch) => ((a.fixed ?? 0) !== (b.fixed ?? 0) ? (a.fixed ?? 0) > (b.fixed ?? 0) : a.at < b.at)
+
+/** Per song, the earlier pick wins (or the newest correction). `take`: picks this device should adopt; `upload`: null when the account has them all. */
+export function mergeMatches(local: Record<string, SongMatch>, remote: Record<string, SongMatch> | null) {
+  const merged: Record<string, SongMatch> = { ...(remote ?? {}) }
+  const take: Record<string, SongMatch> = {}
+  let changed = !remote
+  for (const [uid, mine] of Object.entries(local)) {
+    const theirs = merged[uid]
+    if (!theirs || keeps(mine, theirs)) {
+      merged[uid] = mine
+      changed = true
+    }
+  }
+  for (const [uid, m] of Object.entries(merged)) {
+    const mine = local[uid]
+    if (!mine || mine.source !== m.source || mine.id !== m.id || mine.at !== m.at || mine.fixed !== m.fixed) take[uid] = m
+  }
+  return { merged, take, upload: changed ? merged : null }
+}
+
+export function syncMatches(s: AccountSession, local: () => Record<string, SongMatch>) {
+  return syncDoc<Record<string, SongMatch>, ReturnType<typeof mergeMatches>>(s, 'matches', (remote) => {
+    const r = mergeMatches(local(), remote)
+    return { upload: r.upload, result: r }
   })
 }
 

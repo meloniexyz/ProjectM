@@ -266,6 +266,13 @@ export class AccountSync {
     return { list: m.playlists, changed: m.localChanged }
   }
 
+  /** Something small changed (e.g. a new song match): sync in a few seconds. */
+  soon() {
+    if (!this.session) return
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = setTimeout(() => this.syncNow(), 3000)
+  }
+
   /** Runs one sync (or queues another if one is already running). */
   syncNow(): Promise<void> {
     if (!this.session) return Promise.resolve()

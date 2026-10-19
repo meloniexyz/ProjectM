@@ -334,8 +334,9 @@ export class SoundCloud implements StreamingSource, AccountSource {
     return bestMatch(t, await this.search(`${t.artist.split(',')[0].trim()} ${t.title}`, 15))
   }
 
-  async matchScored(t: MatchTarget) {
-    return scoredMatch(t, await this.search(`${t.artist.split(',')[0].trim()} ${t.title}`, 15))
+  /** `skip`: a recording marked as the wrong version */
+  async matchScored(t: MatchTarget, skip?: string) {
+    return scoredMatch(t, (await this.search(`${t.artist.split(',')[0].trim()} ${t.title}`, 15)).filter((c) => c.id !== skip))
   }
 
   async resolve(id: string): Promise<StreamInfo> {
