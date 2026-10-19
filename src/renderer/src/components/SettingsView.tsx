@@ -15,6 +15,7 @@ import { useStore } from '../lib/store'
 import { toast } from '../lib/ui'
 import { SourceBadge } from './Icons'
 import { MyProfile, PrivateEmail } from './Profile'
+import { checkForUpdates } from './UpdateDialog'
 import { clearListenHistory } from './HistoryView'
 import { EqualizerPanel } from './Equalizer'
 import { ThemesPanel } from './ThemesPanel'
@@ -240,7 +241,9 @@ export function SettingsView({ tab = 'general' }: { tab?: 'general' | 'eq' | 'th
       </Section>
 
       <Section title="About">
-        <Row label="ProjectM" hint={info ? `Version ${info.version} · Electron ${info.electron}` : ''} />
+        <Row label="ProjectM" hint={info ? `Version ${info.version} · Electron ${info.electron}` : ''}>
+          <CheckUpdatesButton />
+        </Row>
         <Row label="Keyboard shortcuts" hint="">
           <div className="shortcuts">
             {[
@@ -457,6 +460,15 @@ export function AccountView() {
         ))}
       </Section>
     </div>
+  )
+}
+
+function CheckUpdatesButton() {
+  const [busy, setBusy] = useState(false)
+  return (
+    <button className="btn small ghost" disabled={busy} onClick={() => (setBusy(true), checkForUpdates(true).finally(() => setBusy(false)))}>
+      {busy ? 'Checking…' : 'Check for updates'}
+    </button>
   )
 }
 

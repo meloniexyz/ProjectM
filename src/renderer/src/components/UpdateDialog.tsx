@@ -1,24 +1,45 @@
 import { useEffect, useState } from 'react'
 import type { UpdateInfo } from '../../../main/updater'
+import { createStore, useStore } from '../lib/store'
 import { toast } from '../lib/ui'
+
+const updateStore = createStore<{ update: UpdateInfo | null }>({ update: null })
+
+/**
+ * Asks GitHub for a newer ProjectM and shows Update / Skip when there is one. On start nothing
+ * shows otherwise; from Settings (`manual`) it also says "up to date" or what went wrong.
+ */
+export async function checkForUpdates(manual = false) {
+  try {
+    const u = await window.api.update.check()
+    if (u) updateStore.set({ update: u })
+    else if (manual) {
+      const { version } = await window.api.app.info()
+      toast(`You're up to date: ProjectM ${version} is the newest version`)
+    }
+  } catch (e) {
+    if (manual) toast(`Couldn't check for updates: ${String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)
+  }
+}
 
 /** The release notes' first points, without markdown marks or the install line. */
 const summary = (notes: string) =>
   notes
     .split(/\r?\n/)
     .map((l) => l.replace(/\*\*|`/g, '').replace(/^[-*]\s+/, '').trim())
-    .filter((l) => l && !/^(windows installer|install)/i.test(l))
+    .filter((l) => l && !/^(windows installer|install|update from projectm)/i.test(l))
     .slice(0, 5)
 
 /** On start: if GitHub has a newer ProjectM, offer Update or Skip. Shows nothing otherwise. */
 export function UpdateDialogHost() {
-  const [update, setUpdate] = useState<UpdateInfo | null>(null)
+  const update = useStore(updateStore, (s) => s.update)
+  const setUpdate = (u: UpdateInfo | null) => updateStore.set({ update: u })
   const [progress, setProgress] = useState<number | null>(null)
 
   useEffect(() => {
     // a moment after start so the first screen isn't slowed; offline just means no prompt
     const t = setTimeout(() => {
-      window.api.update.check().then(setUpdate, () => {})
+      void checkForUpdates()
     }, 2500)
     const off = window.api.update.onProgress(setProgress)
     return () => {
