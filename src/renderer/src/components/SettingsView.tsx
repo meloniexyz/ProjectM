@@ -13,7 +13,8 @@ import { updateSettings, useSettings } from '../lib/settings'
 import { SOURCES } from '../lib/sources'
 import { useStore } from '../lib/store'
 import { toast } from '../lib/ui'
-import { SourceBadge, UserIcon } from './Icons'
+import { SourceBadge } from './Icons'
+import { MyProfile, PrivateEmail } from './Profile'
 import { clearListenHistory } from './HistoryView'
 import { EqualizerPanel } from './Equalizer'
 import { ThemesPanel } from './ThemesPanel'
@@ -349,7 +350,7 @@ function AccountRows() {
   if (!a.loggedIn)
     return (
       <Row
-        label={a.needsLogin ? `Logged out (${a.email ?? 'your account'})` : 'Not logged in'}
+        label={a.needsLogin ? 'Logged out' : 'Not logged in'}
         hint={
           a.needsLogin
             ? 'Your password was changed or this PC was removed from your devices. Log in again to keep syncing; nothing on this PC was lost.'
@@ -369,7 +370,7 @@ function AccountRows() {
   return (
     <>
       <Row
-        label={a.email ?? 'Logged in'}
+        label="Sync"
         hint={
           a.error
             ? `Couldn't sync: ${a.error}`
@@ -383,6 +384,9 @@ function AccountRows() {
         <button className="btn small ghost" disabled={a.syncing} onClick={() => window.api.account.syncNow()}>
           Sync now
         </button>
+      </Row>
+      <Row label="Email" hint="Only you see it. Your profile shows your @username instead.">
+        {a.email && <PrivateEmail email={a.email} />}
       </Row>
       <Row label="Devices" hint="PCs and iPhones logged in to this account. Remove one you no longer use, like a lost phone.">
         <button className="btn small ghost" onClick={() => setShowDevices((v) => !v)}>
@@ -439,20 +443,11 @@ function AccountRows() {
   )
 }
 
-/** Sidebar → Account: the ProjectM account you're logged in with, and your platform sign-ins. */
+/** Sidebar → Account: your profile, the ProjectM account settings, and your platform sign-ins. */
 export function AccountView() {
-  const a = useProjectMAccount()
   return (
     <div className="settings">
-      <div className="account-head">
-        <AccountAvatar email={a.loggedIn || a.needsLogin ? a.email : undefined} size={64} />
-        <div>
-          <h1>{a.loggedIn && a.email ? a.email : 'Account'}</h1>
-          <div className="settings-hint">
-            {a.loggedIn ? 'Logged in to ProjectM on this PC' : a.needsLogin ? 'Logged out, log in again to keep syncing' : 'Not logged in'}
-          </div>
-        </div>
-      </div>
+      <MyProfile />
       <Section title="ProjectM account">
         <AccountRows />
       </Section>
@@ -462,19 +457,6 @@ export function AccountView() {
         ))}
       </Section>
     </div>
-  )
-}
-
-/** The first letter of the account's email on the accent colour, or a person outline when logged out. */
-export function AccountAvatar({ email, size = 24 }: { email?: string; size?: number }) {
-  return email ? (
-    <span className="account-avatar" style={{ width: size, height: size, fontSize: size * 0.45 }}>
-      {email[0]!.toUpperCase()}
-    </span>
-  ) : (
-    <span className="account-avatar no-account" style={{ width: size, height: size }}>
-      <UserIcon size={size >= 40 ? size * 0.6 : size} />
-    </span>
   )
 }
 

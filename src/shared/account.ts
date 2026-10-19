@@ -25,6 +25,37 @@ export interface AccountSession {
   accountKey: string
 }
 
+/**
+ * What the account shows, like a Discord profile: @username, display name, photo, banner, two
+ * profile colours and "About me". Other logged-in people can see it (never the email).
+ */
+export interface Profile {
+  /** without the @; null for accounts made before profiles, until they pick one */
+  handle: string | null
+  displayName: string
+  /** SHA-256 of the profile photo / banner image, null for none */
+  avatar: string | null
+  banner: string | null
+  /** two "#rrggbb" profile colours (Discord's primary and accent), null for the app's own */
+  colors: [string, string] | null
+  bio: string
+  memberSince: number
+}
+export type ProfileImage = 'avatar' | 'banner'
+export const MAX_BIO = 190
+
+/**
+ * A username as stored: lowercase, 3-20 letters, numbers, "_" or "." (not at either end, never two
+ * dots in a row). Null when it doesn't qualify. The server checks the same rules.
+ */
+export function cleanHandle(raw: string): string | null {
+  const h = raw.trim().replace(/^@/, '').toLowerCase()
+  if (!/^[a-z0-9_.]{3,20}$/.test(h) || h.startsWith('.') || h.endsWith('.') || h.includes('..')) return null
+  return h
+}
+export const HANDLE_RULES = '3-20 letters, numbers, _ or . (no dot at the start or end)'
+export const MAX_DISPLAY_NAME = 32
+
 export interface AccountDevice {
   id: string
   name: string
@@ -77,11 +108,13 @@ async function call<T>(method: string, path: string, body?: unknown, token?: str
 
 // ---------- sign-in ----------
 
-/** Creates an account; returns the session and the recovery code to show once. */
-export async function signUp(email: string, password: string, device: DeviceInfo) {
+/** Creates an account with its @username (and optional display name); returns the session and the recovery code to show once. */
+export async function signUp(email: string, password: string, device: DeviceInfo, profile: { handle: string; displayName?: string }) {
+  const handle = cleanHandle(profile.handle)
+  if (!handle) throw new AccountError(400, 'bad_handle', `Usernames are ${HANDLE_RULES}`)
   if (password.length < 8) throw new AccountError(400, 'short_password', 'The password needs at least 8 characters')
   const { accountKey, recoveryCode, lock } = await newAccountLock(password)
-  const r = await call<{ token: string; accountId: string; email: string }>('POST', '/v1/signup', { email: normalizeEmail(email), lock, device })
+  const r = await call<{ token: string; accountId: string; email: string }>('POST', '/v1/signup', { email: normalizeEmail(email), lock, device, handle, displayName: profile.displayName ?? '' })
   const session: AccountSession = { email: r.email, accountId: r.accountId, token: r.token, accountKey: toB64(accountKey) }
   return { session, recoveryCode }
 }
@@ -138,9 +171,63 @@ export async function ownerReset(email: string, newPassword: string, device: Dev
   return { session: { email: r.email, accountId: r.accountId, token: r.token, accountKey: toB64(accountKey) } as AccountSession, recoveryCode }
 }
 
-export const accountInfo = (s: AccountSession) => call<{ email: string; accountId: string; thisDevice: string; devices: AccountDevice[] }>('GET', '/v1/me', undefined, s.token)
+export const accountInfo = (s: AccountSession) =>
+  call<{ email: string; accountId: string; profile: Profile; thisDevice: string; devices: AccountDevice[] }>('GET', '/v1/me', undefined, s.token)
 export const logOut = (s: AccountSession) => call('POST', '/v1/logout', undefined, s.token).catch(() => {})
 export const removeDevice = (s: AccountSession, deviceId: string) => call('DELETE', `/v1/devices/${encodeURIComponent(deviceId)}`, undefined, s.token)
+
+// ---------- profile ----------
+
+/** Is this username free? `reason`: 'bad_handle' (breaks the rules) or 'taken'. */
+export async function handleAvailable(raw: string): Promise<{ available: boolean; handle: string | null; reason?: 'bad_handle' | 'taken' }> {
+  const handle = cleanHandle(raw)
+  if (!handle) return { available: false, handle: null, reason: 'bad_handle' }
+  const r = await call<{ available: boolean; reason?: 'bad_handle' | 'taken' }>('GET', `/v1/handle?h=${encodeURIComponent(handle)}`)
+  return { available: r.available, handle, reason: r.reason }
+}
+
+/** New @username, display name, profile colours and/or About me. */
+export async function updateProfile(s: AccountSession, patch: { handle?: string; displayName?: string; colors?: [string, string] | null; bio?: string }) {
+  if (patch.handle !== undefined && !cleanHandle(patch.handle)) throw new AccountError(400, 'bad_handle', `Usernames are ${HANDLE_RULES}`)
+  return (await call<{ profile: Profile }>('PATCH', '/v1/profile', patch, s.token)).profile
+}
+
+/** New profile photo (square, 512 KB at most) or banner (5:2, 1 MB at most); returns its hash. */
+export async function uploadProfileImage(s: AccountSession, kind: ProfileImage, bytes: Uint8Array, type: 'image/jpeg' | 'image/png' | 'image/webp') {
+  const res = await http(`${server}/v1/${kind}`, { method: 'PUT', headers: { Authorization: `Bearer ${s.token}`, 'Content-Type': type }, body: new Uint8Array(bytes) })
+  const d = (await res.json().catch(() => ({}))) as Record<string, string | undefined>
+  if (!res.ok || !d[kind]) throw new AccountError(res.status, d.error ?? 'server_error', d.message ?? `Upload failed (${res.status})`)
+  return d[kind]!
+}
+
+export const removeProfileImage = (s: AccountSession, kind: ProfileImage) => call('DELETE', `/v1/${kind}`, undefined, s.token)
+
+async function getImage(s: AccountSession, path: string): Promise<{ bytes: Uint8Array; type: string } | null> {
+  const res = await http(`${server}${path}`, { headers: { Authorization: `Bearer ${s.token}` } })
+  if (res.status === 404) return null
+  if (!res.ok) throw new AccountError(res.status, res.status === 401 ? 'signed_out' : 'server_error', `Download failed (${res.status})`)
+  return { bytes: new Uint8Array(await res.arrayBuffer()), type: res.headers.get('Content-Type') ?? 'image/jpeg' }
+}
+
+/** Your own photo or banner. */
+export const downloadProfileImage = (s: AccountSession, kind: ProfileImage, hash: string) => getImage(s, `/v1/${kind}/${hash}`)
+
+// ---------- other people (ProjectM search) ----------
+
+/** Someone's public profile: what anyone logged in can see. */
+export type PublicProfile = Profile & { handle: string }
+
+/** People by @username (starts with) or display name. */
+export async function searchUsers(s: AccountSession, query: string) {
+  return (await call<{ users: PublicProfile[] }>('GET', `/v1/users?q=${encodeURIComponent(query.trim())}`, undefined, s.token)).users
+}
+
+export async function getUser(s: AccountSession, handle: string) {
+  return (await call<{ user: PublicProfile }>('GET', `/v1/users/${encodeURIComponent(handle)}`, undefined, s.token)).user
+}
+
+/** Someone's photo or banner. */
+export const downloadUserImage = (s: AccountSession, handle: string, kind: ProfileImage, hash: string) => getImage(s, `/v1/users/${encodeURIComponent(handle)}/${kind}/${hash}`)
 
 export async function deleteAccount(s: AccountSession, password: string) {
   const lock = await call<{ salt: string; iterations: number }>('GET', `/v1/lock?email=${encodeURIComponent(s.email)}`)

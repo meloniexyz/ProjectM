@@ -15,6 +15,7 @@ export type View =
   | { kind: 'remotePlaylist'; source: SourceId; id: string; name: string }
   | { kind: 'entity'; entity: Entity }
   | { kind: 'account' }
+  | { kind: 'person'; handle: string }
 
 export interface Nav {
   view: View

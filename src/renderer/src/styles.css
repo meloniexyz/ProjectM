@@ -3268,3 +3268,243 @@ kbd {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* profile cards (Sidebar → Account, other people), Discord-style */
+.account-avatar.photo {
+  object-fit: cover;
+  border-radius: 50%;
+  flex: none;
+}
+.pcard {
+  --pcard-bg: var(--bg-2);
+  position: relative;
+  max-width: 560px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--pcard-bg);
+  margin-bottom: 26px;
+}
+/* two profile colours: the card runs from primary to accent, like Discord's profile themes */
+.pcard.themed {
+  --pcard-bg: color-mix(in srgb, var(--pc1) 30%, #0b0b10);
+  background: linear-gradient(180deg, var(--pc1), var(--pc2));
+  padding: 4px;
+}
+.pcard-banner {
+  aspect-ratio: 5 / 2;
+  max-height: 240px;
+  width: 100%;
+  background: var(--accent) center / cover no-repeat;
+}
+.pcard.themed .pcard-banner {
+  background-color: var(--pc1);
+  border-radius: 12px 12px 0 0;
+}
+.pcard-top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 16px;
+  /* the photo (96 + 2 x 6 ring) sits half on the banner, like Discord */
+  margin-top: -54px;
+  position: relative;
+}
+.pcard-avatar {
+  border-radius: 50%;
+  padding: 6px;
+  background: var(--pcard-bg);
+  align-self: flex-start;
+}
+.pcard.themed .pcard-avatar {
+  background: color-mix(in srgb, var(--pc1) 45%, #0b0b10);
+}
+.pcard-actions {
+  display: flex;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+.pcard-panel {
+  margin: 12px 16px 16px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #000 28%, var(--pcard-bg));
+}
+.pcard.themed .pcard-panel {
+  background: color-mix(in srgb, #000 45%, transparent);
+  margin: 12px 12px 12px;
+}
+.pcard-name {
+  font-size: 24px;
+  font-weight: 800;
+  margin: 0;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.pcard-handle {
+  font-size: 14px;
+  color: var(--text-2);
+  margin-top: 2px;
+}
+.pcard-email {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 6px;
+}
+.pcard-email .link {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pcard-email .link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.pcard-divider {
+  height: 1px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  margin: 14px 0 12px;
+}
+.pcard-panel section + section {
+  margin-top: 12px;
+}
+.pcard-panel h4 {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+  margin: 0 0 4px;
+}
+.pcard-panel p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+.pcard-bio {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pcard.compact .pcard-name {
+  font-size: 20px;
+}
+.pcard.compact .pcard-top {
+  margin-top: -46px;
+}
+/* Edit profile: settings left, live preview right */
+.modal.profile-modal {
+  width: min(900px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+.edit-profile {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 28px;
+}
+.edit-profile-preview h4 {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+  margin: 6px 0 10px;
+}
+.edit-profile-preview .pcard {
+  margin: 0;
+}
+.color-swatch {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.color-swatch input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  cursor: pointer;
+}
+.color-swatch span {
+  width: 56px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+}
+.color-swatch.off span {
+  opacity: 0.45;
+}
+.color-swatch small {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.field-hint.quiet {
+  color: var(--text-3) !important;
+}
+.counter {
+  float: right;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.bio-input {
+  resize: vertical;
+  min-height: 70px;
+  font-family: inherit;
+  padding: 10px 12px;
+}
+/* Search → ProjectM */
+.people-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 640px;
+}
+.person-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  text-align: left;
+}
+.person-row:hover {
+  background: var(--bg-hover);
+}
+.person-text {
+  flex: 1;
+  min-width: 0;
+}
+.person-name {
+  font-weight: 700;
+}
+.person-handle {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.handle-input {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.handle-input > span {
+  color: var(--text-3);
+  font-weight: 600;
+}
+.handle-input .text-input {
+  flex: 1;
+}
+.field-hint.good {
+  color: #3ddc84 !important;
+}
+.field-hint.bad {
+  color: var(--danger) !important;
+}
+
+.chip-logo {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}

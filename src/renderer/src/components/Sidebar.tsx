@@ -5,7 +5,7 @@ import { useNav } from '../lib/nav'
 import { playTracks } from '../lib/player'
 import { accountStore } from '../lib/accounts'
 import { useProjectMAccount } from '../lib/account'
-import { AccountAvatar } from './SettingsView'
+import { AccountAvatar, shownName } from './Profile'
 import { isConnected, SOURCE_ORDER, SOURCES, useConnections } from '../lib/sources'
 import { useStore } from '../lib/store'
 import { openMenu } from '../lib/ui'
@@ -54,15 +54,15 @@ export function Sidebar() {
         {item(v.kind === 'history', <ClockIcon />, 'History', () => nav.go({ kind: 'history' }))}
         {item(
           v.kind === 'account',
-          <AccountAvatar email={pm.loggedIn || pm.needsLogin ? pm.email : undefined} size={20} />,
-          pm.loggedIn && pm.email ? pm.email.split('@')[0]! : 'Account',
+          <AccountAvatar profile={pm.loggedIn ? pm.profile : undefined} size={20} />,
+          pm.loggedIn ? shownName(pm.profile) : 'Account',
           () => nav.go({ kind: 'account' }),
           pm.needsLogin ? (
             <span className="pill">Log in</span>
           ) : pm.loggedIn && pm.error ? (
             <span className="warn-dot" title={`Couldn't sync: ${pm.error}`} />
           ) : undefined,
-          pm.loggedIn ? pm.email : undefined,
+          pm.loggedIn && pm.profile?.handle ? `@${pm.profile.handle}` : undefined,
         )}
       </div>
 

@@ -19,6 +19,7 @@ import { initLibrary } from './lib/library'
 import { initAccounts } from './lib/accounts'
 import { getSettings } from './lib/settings'
 import { AccountView, SettingsView } from './components/SettingsView'
+import { PersonView } from './components/Profile'
 import { EntityView } from './components/EntityViews'
 import { useLogo } from './lib/logos'
 import { NavContext, ScrollContext, type Nav, type View } from './lib/nav'
@@ -187,5 +188,7 @@ function Page({ view }: { view: View }) {
       return <EntityView entity={view.entity} />
     case 'account':
       return <AccountView />
+    case 'person':
+      return <PersonView handle={view.handle} />
   }
 }

@@ -3,6 +3,8 @@ import { accountDialogStore, accountError, accountPromptDone, closeAccountDialog
 import { useStore } from '../lib/store'
 import { toast } from '../lib/ui'
 import { XIcon } from './Icons'
+import { cls } from '../lib/format'
+import { DisplayNameField, EditProfile, HandleField } from './Profile'
 
 /** Log in, create an account, reset with the recovery code, change password, delete the account. */
 export function AccountDialogHost() {
@@ -25,7 +27,7 @@ function AccountDialog({ mode }: { mode: AccountDialogMode }) {
   })
   return (
     <div className="modal-backdrop" onMouseDown={close}>
-      <div className="modal account-modal" onMouseDown={(e) => e.stopPropagation()} role="dialog">
+      <div className={cls('modal account-modal', (mode === 'profile' || mode === 'pickHandle') && 'profile-modal')} onMouseDown={(e) => e.stopPropagation()} role="dialog">
         {typeof mode !== 'string' ? (
           <RecoveryCode code={mode.recoveryCode} />
         ) : mode === 'login' ? (
@@ -34,6 +36,8 @@ function AccountDialog({ mode }: { mode: AccountDialogMode }) {
           <SignUp close={close} />
         ) : mode === 'recover' ? (
           <Recover close={close} />
+        ) : mode === 'profile' || mode === 'pickHandle' ? (
+          <EditProfile close={close} pick={mode === 'pickHandle'} />
         ) : mode === 'password' ? (
           <ChangePassword close={close} />
         ) : (
@@ -140,6 +144,9 @@ function LogIn({ close }: { close: () => void }) {
 
 function SignUp({ close }: { close: () => void }) {
   const [email, setEmail] = useState('')
+  const [handle, setHandle] = useState('')
+  const [validHandle, setValidHandle] = useState<string | null>(null)
+  const [name, setName] = useState('')
   const [password, setPassword] = useState('')
   const [again, setAgain] = useState('')
   const { busy, error, run } = useAction()
@@ -149,7 +156,8 @@ function SignUp({ close }: { close: () => void }) {
     run(async () => {
       if (password.length < 8) throw new Error('The password needs at least 8 characters')
       if (password !== again) throw new Error("The passwords don't match")
-      const { recoveryCode } = await window.api.account.signUp(email, password)
+      if (!validHandle) throw new Error('Pick a username that is free')
+      const { recoveryCode } = await window.api.account.signUp(email, password, validHandle, name.trim())
       accountPromptDone()
       openAccountDialog({ recoveryCode })
     })
@@ -159,6 +167,8 @@ function SignUp({ close }: { close: () => void }) {
       <p className="account-intro">Your playlists, look, sound settings, history and music platforms follow you to every PC and iPhone you log in on. Your password never leaves this PC.</p>
       <div className="account-fields">
         <Field label="Email" type="email" value={email} onChange={setEmail} autoFocus onEnter={go} />
+        <HandleField value={handle} onChange={setHandle} onValid={setValidHandle} />
+        <DisplayNameField value={name} onChange={setName} />
         <Field label="Password" type="password" value={password} onChange={setPassword} hint={short ? 'At least 8 characters' : undefined} onEnter={go} />
         <Field label="Password again" type="password" value={again} onChange={setAgain} hint={mismatch ? "Doesn't match" : undefined} onEnter={go} />
       </div>
@@ -166,7 +176,7 @@ function SignUp({ close }: { close: () => void }) {
         <button className="link" onClick={() => openAccountDialog('login')}>
           I already have an account
         </button>
-        <button className="btn primary" disabled={busy || !email || password.length < 8 || password !== again} onClick={go}>
+        <button className="btn primary" disabled={busy || !email || !validHandle || password.length < 8 || password !== again} onClick={go}>
           {busy ? 'Creating…' : 'Create account'}
         </button>
       </Foot>

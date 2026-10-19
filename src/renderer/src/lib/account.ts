@@ -8,7 +8,15 @@ import { createStore, useStore } from './store'
 export const accountStore = createStore<ProjectMAccountStatus>({ loggedIn: false, syncing: false })
 
 // fields missing from a status (IPC drops undefined) are cleared, not kept from the last one
-const apply = (s: ProjectMAccountStatus) => accountStore.set({ email: undefined, lastSync: undefined, error: undefined, needsLogin: undefined, ...s })
+const apply = (s: ProjectMAccountStatus) => {
+  accountStore.set({ email: undefined, lastSync: undefined, error: undefined, needsLogin: undefined, profile: undefined, relay: undefined, ...s })
+  // an account from before usernames: ask for one, once per launch
+  if (s.loggedIn && s.profile && !s.profile.handle && !askedHandle && !accountDialogStore.get().mode) {
+    askedHandle = true
+    openAccountDialog('pickHandle')
+  }
+}
+let askedHandle = false
 
 let started = false
 export function initAccount() {
@@ -29,8 +37,14 @@ export function initAccount() {
 
 export const useProjectMAccount = () => useStore(accountStore, (s) => s)
 
+/** c*******@gmail.com: the email stays private unless you press Show on your profile. */
+export const maskEmail = (email: string) => {
+  const at = email.lastIndexOf('@')
+  return at < 1 ? '*'.repeat(8) : `${email[0]}${'*'.repeat(Math.min(8, Math.max(4, at - 1)))}${email.slice(at)}`
+}
+
 /** Which account dialog is open (log in, create, recovery code, ...). */
-export type AccountDialogMode = 'login' | 'signup' | 'recover' | 'password' | 'delete' | { recoveryCode: string }
+export type AccountDialogMode = 'login' | 'signup' | 'recover' | 'password' | 'delete' | 'profile' | 'pickHandle' | { recoveryCode: string }
 export const accountDialogStore = createStore<{ mode: AccountDialogMode | null }>({ mode: null })
 export const openAccountDialog = (mode: AccountDialogMode) => accountDialogStore.set({ mode })
 export const closeAccountDialog = () => accountDialogStore.set({ mode: null })

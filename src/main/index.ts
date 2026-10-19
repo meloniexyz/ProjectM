@@ -14,7 +14,7 @@ import { getLyrics } from './lyrics'
 import { ListenHistory } from './history'
 import { getSongInfo } from './songinfo'
 import { Secrets } from './secrets'
-import { AccountSync } from './account-sync'
+import { AccountSync, type LocalProfile } from './account-sync'
 import { AccountExtras, EMPTY_EXTRAS, type ExtrasState } from './account-extras'
 import { setAccountServer, type SongMatch } from '../shared/account'
 import { YouTubeMusic } from './sources/youtube'
@@ -125,6 +125,7 @@ listenHistory.onChange = (c) => {
   if (c.remove) accountSync.extras?.noteRemove(c.remove)
   if (c.clear) accountSync.extras?.noteClear()
 }
+accountSync.profileFile = new JsonFile<LocalProfile | null>(join(dataDir, 'account-profile.json'), null)
 accountSync.onStatus = (s) => win?.webContents.send('pmaccount:status', s)
 accountSync.onPlaylists = (list) => win?.webContents.send('playlists:changed', list)
 const streaming: Partial<Record<SourceId, StreamingSource>> = { youtube, soundcloud, spotify }
@@ -534,7 +535,34 @@ ipcMain.handle('playlists:save', async (_, saved: Playlist[]) => {
 })
 ipcMain.handle('playlists:deleted', (_, id: string) => accountSync.markDeleted(id))
 ipcMain.handle('pmaccount:status', () => accountSync.status)
-ipcMain.handle('pmaccount:signUp', (_, email: string, password: string) => accountSync.signUp(email, password))
+ipcMain.handle('pmaccount:signUp', (_, email: string, password: string, handle: string, displayName: string) => accountSync.signUp(email, password, handle, displayName))
+ipcMain.handle('pmaccount:handleAvailable', (_, h: string) => accountSync.handleAvailable(h))
+ipcMain.handle('pmaccount:updateProfile', (_, patch: { handle?: string; displayName?: string; colors?: [string, string] | null; bio?: string }) => accountSync.updateProfile(patch))
+ipcMain.handle('pmaccount:removeImage', (_, kind: 'avatar' | 'banner') => accountSync.removeProfileImage(kind))
+ipcMain.handle('pmaccount:searchPeople', (_, q: string) => accountSync.searchPeople(q))
+ipcMain.handle('pmaccount:person', (_, handle: string) => accountSync.person(handle))
+/**
+ * Pick a profile photo (cropped to the middle square, 256 px) or banner (cropped to 5:2 like
+ * Discord, 960x384), saved as JPEG. False when cancelled.
+ */
+ipcMain.handle('pmaccount:pickImage', async (_, kind: 'avatar' | 'banner') => {
+  // PROJECTM_TEST_AVATAR / PROJECTM_TEST_BANNER: a test run's picture instead of the file picker
+  const testFile = process.env[kind === 'banner' ? 'PROJECTM_TEST_BANNER' : 'PROJECTM_TEST_AVATAR']
+  const r = testFile
+    ? { canceled: false, filePaths: [testFile] }
+    : await dialog.showOpenDialog(win!, { title: kind === 'banner' ? 'Profile banner' : 'Profile photo', properties: ['openFile'], filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'] }] })
+  if (r.canceled || !r.filePaths[0]) return false
+  const image = nativeImage.createFromPath(r.filePaths[0])
+  if (image.isEmpty()) throw new Error("That file isn't an image ProjectM can read")
+  const { width, height } = image.getSize()
+  const [outW, outH] = kind === 'banner' ? [960, 384] : [256, 256]
+  // the largest middle part with the right shape
+  const w = Math.min(width, Math.round((height * outW) / outH))
+  const h = Math.round((w * outH) / outW)
+  const part = image.crop({ x: Math.floor((width - w) / 2), y: Math.floor((height - h) / 2), width: w, height: h })
+  await accountSync.setProfileImage(kind, new Uint8Array(part.resize({ width: outW, height: outH, quality: 'best' }).toJPEG(86)))
+  return true
+})
 ipcMain.handle('pmaccount:logIn', (_, email: string, password: string) => accountSync.logIn(email, password))
 ipcMain.handle('pmaccount:recover', (_, email: string, code: string, password: string) => accountSync.recover(email, code, password))
 ipcMain.handle('pmaccount:changePassword', (_, next: string) => accountSync.changePassword(next))

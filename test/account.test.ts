@@ -2,10 +2,12 @@
 // `npx wrangler dev --port 8799 --local`, then `API=http://127.0.0.1:8799 npm test` here.
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { changePassword, downloadCover, fetchHistory, knownFrom, localFields, logIn, mergeFields, mergeMatches, syncMatches, type SongMatch, ownerReset, recover, relayDone, relayDownload, relayReport, relayUpload, sendHistory, setAccountServer, signUp, songKey, syncPlatforms, syncPlaylists, syncSettings, uploadCover, type AccountSession } from '../src/shared/account'
+import { changePassword, downloadCover, fetchHistory, knownFrom, localFields, logIn, mergeFields, mergeMatches, accountInfo, updateProfile, uploadProfileImage, downloadProfileImage, handleAvailable, cleanHandle, searchUsers, getUser, downloadUserImage, syncMatches, type SongMatch, ownerReset, recover, relayDone, relayDownload, relayReport, relayUpload, sendHistory, setAccountServer, signUp, songKey, syncPlatforms, syncPlaylists, syncSettings, uploadCover, type AccountSession } from '../src/shared/account'
 import type { Playlist, Track } from '../src/shared/types'
 
 const API = process.env.API
+/** a fresh @username per test account */
+const newHandle = () => `t_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 const dev = (name: string) => ({ id: `test-${name}-${Math.random().toString(36).slice(2, 10)}`, name, platform: 'windows' as const })
 const track = (id: string): Track => ({ uid: `spotify:${id}`, source: 'spotify', id, title: `Song ${id}`, artist: 'A', album: 'B', duration: 100 })
 const pl = (id: string, updatedAt: number, ids: string[]): Playlist => ({ id, name: id, tracks: ids.map(track), createdAt: 1, updatedAt })
@@ -30,7 +32,7 @@ describe('account client', { skip: !API && 'set API (wrangler dev of projectm-se
 
   test('playlists made on two devices end up on both', async () => {
     const email = `client-${now}@example.com`
-    const { session: pcS, recoveryCode } = await signUp(email, 'password123', dev('pc'))
+    const { session: pcS, recoveryCode } = await signUp(email, 'password123', dev('pc'), { handle: newHandle() })
     assert.match(recoveryCode, /^[A-Z0-9]{4}(-[A-Z0-9]{4}){5}$/)
     const phoneS = await logIn(email, 'password123', dev('phone'))
     assert.equal(phoneS.accountKey, pcS.accountKey)
@@ -59,7 +61,7 @@ describe('account client', { skip: !API && 'set API (wrangler dev of projectm-se
 
   test('two devices saving at the same moment both keep their changes', async () => {
     const email = `client2-${now}@example.com`
-    const { session } = await signUp(email, 'password123', dev('pc'))
+    const { session } = await signUp(email, 'password123', dev('pc'), { handle: newHandle() })
     const other = await logIn(email, 'password123', dev('phone'))
     const a = device(session, [pl('a', now, ['1'])])
     const b = device(other, [pl('b', now, ['2'])])
@@ -71,12 +73,12 @@ describe('account client', { skip: !API && 'set API (wrangler dev of projectm-se
 
   test('wrong password and short password', async () => {
     await assert.rejects(logIn(`client-${now}@example.com`, 'nope-nope', dev('x')), /Email or password is wrong/)
-    await assert.rejects(signUp(`short-${now}@example.com`, 'short', dev('x')), /at least 8/)
+    await assert.rejects(signUp(`short-${now}@example.com`, 'short', dev('x'), { handle: newHandle() }), /at least 8/)
   })
 
   test('forgot password: new one from a logged-in device, or with the recovery code; owner reset needs allowing', async () => {
     const email = `pw-${now}@example.com`
-    const { session, recoveryCode } = await signUp(email, 'first-password', dev('pc'))
+    const { session, recoveryCode } = await signUp(email, 'first-password', dev('pc'), { handle: newHandle() })
     await changePassword(session, 'second-password') // no old password needed on a logged-in device
     await assert.rejects(logIn(email, 'first-password', dev('x')), /wrong/)
     const phone = await logIn(email, 'second-password', dev('phone'))
@@ -107,7 +109,7 @@ describe('account client', { skip: !API && 'set API (wrangler dev of projectm-se
 
   test('look settings, history and platform sign-ins reach the second device', async () => {
     const email = `stage2-${now}@example.com`
-    const { session: pc } = await signUp(email, 'password123', dev('pc'))
+    const { session: pc } = await signUp(email, 'password123', dev('pc'), { handle: newHandle() })
     const phone = await logIn(email, 'password123', dev('phone'))
     await syncSettings(pc, 'look', () => localFields({ theme: 'nord', accent: '#ff4d5e' }, { theme: { json: '"x"', at: 1 }, accent: { json: '"x"', at: 1 } }))
     const got = await syncSettings(phone, 'look', () => ({ fields: {} }))
@@ -123,6 +125,32 @@ describe('account client', { skip: !API && 'set API (wrangler dev of projectm-se
     assert.deepEqual(h.entries.map((e) => e.id), ['h1'])
   })
 
+  test('profile: @username at sign-up, display name and photo reach the other device', async () => {
+    assert.equal(cleanHandle('@Melo.Nie'), 'melo.nie')
+    assert.equal(cleanHandle('.melo'), null)
+    const handle = newHandle()
+    const email = `profile-${Date.now()}@example.com`
+    await assert.rejects(signUp(email, 'password123', dev('pc'), { handle: 'no spaces' }), /3-20/)
+    const { session: pc } = await signUp(email, 'password123', dev('pc'), { handle, displayName: 'Melo' })
+    assert.equal((await handleAvailable(handle)).available, false)
+    assert.equal((await handleAvailable(`${handle}2`)).available, true)
+    const photo = new Uint8Array(1500).fill(9)
+    const hash = await uploadProfileImage(pc, 'avatar', photo, 'image/jpeg')
+    const banner = await uploadProfileImage(pc, 'banner', new Uint8Array(3000).fill(4), 'image/jpeg')
+    await updateProfile(pc, { displayName: 'Melonie', colors: ['#ff4d8d', '#3b1d8f'], bio: 'hi' })
+    const phone = await logIn(email, 'password123', dev('phone'))
+    const p = (await accountInfo(phone)).profile
+    assert.deepEqual({ ...p, memberSince: 0 }, { handle, displayName: 'Melonie', avatar: hash, banner, colors: ['#ff4d8d', '#3b1d8f'], bio: 'hi', memberSince: 0 })
+    assert.equal((await downloadProfileImage(phone, 'avatar', hash))?.bytes.length, 1500)
+    // someone else finds the profile, sees its pictures, never the email
+    const { session: other } = await signUp(`other-${Date.now()}@example.com`, 'password123', dev('pc'), { handle: newHandle() })
+    const found = await searchUsers(other, handle)
+    assert.ok(found.some((u) => u.handle === handle))
+    assert.equal(JSON.stringify(found).includes('@example.com'), false)
+    assert.equal((await getUser(other, handle)).bio, 'hi')
+    assert.equal((await downloadUserImage(other, handle, 'banner', banner))?.bytes.length, 3000)
+  })
+
   test('song matches: the first pick on any device wins, everywhere', async () => {
     const m = (id: string, at: number): SongMatch => ({ source: 'youtube', id, title: 'T', artist: 'A', duration: 100, at })
     // merge rules alone
@@ -134,7 +162,7 @@ describe('account client', { skip: !API && 'set API (wrangler dev of projectm-se
     assert.equal(mergeMatches({ s1: m('first', 10) }, { s1: m('first', 10) }).upload, null)
     // through the server: the phone picked first, the PC picked a different recording later
     const email = `match-${Date.now()}@example.com`
-    const { session: pc } = await signUp(email, 'password123', dev('pc'))
+    const { session: pc } = await signUp(email, 'password123', dev('pc'), { handle: newHandle() })
     const phone = await logIn(email, 'password123', dev('phone'))
     await syncMatches(phone, () => ({ 'spotify:x': m('phone-pick', 1000) }))
     const got = await syncMatches(pc, () => ({ 'spotify:x': m('pc-pick', 2000) }))
@@ -144,7 +172,7 @@ describe('account client', { skip: !API && 'set API (wrangler dev of projectm-se
   })
 
   test('local song relay through the client', async () => {
-    const { session: pc } = await signUp(`relay-${now}@example.com`, 'password123', dev('pc'))
+    const { session: pc } = await signUp(`relay-${now}@example.com`, 'password123', dev('pc'), { handle: newHandle() })
     const phone = await logIn(`relay-${now}@example.com`, 'password123', dev('phone'))
     const key = songKey('My Song (Remix)', 'Me, Someone Else')
     assert.equal(key, songKey('my song remix', 'ME'))

@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { UpdateInfo } from '../main/updater'
 import type { AccountDevice } from '../shared/account'
-import type { ProjectMAccountStatus } from '../main/account-sync'
+import type { ProjectMAccountStatus, ShownProfile } from '../main/account-sync'
 import type {
   LibraryState,
   Playlist,
@@ -173,7 +173,17 @@ const api = {
   /** ProjectM account: same playlists (and more) on every PC and phone */
   account: {
     status: (): Promise<ProjectMAccountStatus> => ipcRenderer.invoke('pmaccount:status'),
-    signUp: (email: string, password: string): Promise<{ recoveryCode: string }> => ipcRenderer.invoke('pmaccount:signUp', email, password),
+    signUp: (email: string, password: string, handle: string, displayName: string): Promise<{ recoveryCode: string }> =>
+      ipcRenderer.invoke('pmaccount:signUp', email, password, handle, displayName),
+    handleAvailable: (h: string): Promise<{ available: boolean; handle: string | null; reason?: 'bad_handle' | 'taken' }> => ipcRenderer.invoke('pmaccount:handleAvailable', h),
+    updateProfile: (patch: { handle?: string; displayName?: string; colors?: [string, string] | null; bio?: string }): Promise<void> =>
+      ipcRenderer.invoke('pmaccount:updateProfile', patch),
+    /** opens a file picker for the photo or banner; false when cancelled */
+    pickImage: (kind: 'avatar' | 'banner'): Promise<boolean> => ipcRenderer.invoke('pmaccount:pickImage', kind),
+    removeImage: (kind: 'avatar' | 'banner'): Promise<void> => ipcRenderer.invoke('pmaccount:removeImage', kind),
+    /** other people on ProjectM */
+    searchPeople: (q: string): Promise<ShownProfile[]> => ipcRenderer.invoke('pmaccount:searchPeople', q),
+    person: (handle: string): Promise<ShownProfile> => ipcRenderer.invoke('pmaccount:person', handle),
     logIn: (email: string, password: string): Promise<void> => ipcRenderer.invoke('pmaccount:logIn', email, password),
     recover: (email: string, code: string, password: string): Promise<{ recoveryCode: string }> => ipcRenderer.invoke('pmaccount:recover', email, code, password),
     /** new password from this logged-in PC; no old password needed */

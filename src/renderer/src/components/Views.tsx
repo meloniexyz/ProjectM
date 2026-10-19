@@ -1,4 +1,6 @@
 import { ENTITY_TABS, EntityResults } from './EntityViews'
+import { PeopleResults } from './Profile'
+import { useLogo } from '../lib/logos'
 import { useEffect, useMemo, useState } from 'react'
 import type { SourceId, Track, EntityKind } from '../../../shared/types'
 import { cls, fmtTotal, norm, plural } from '../lib/format'
@@ -146,7 +148,8 @@ export function AlbumView({ albumKey }: { albumKey: string }) {
 
 // ---------- Search ----------
 
-type Filter = 'all' | SourceId
+/** 'projectm': people on ProjectM (profiles), next to the music platforms */
+type Filter = 'all' | SourceId | 'projectm'
 type Remote = { status: 'loading' | 'done' | 'error'; tracks: Track[]; error?: string }
 const PREVIEW = 5
 
@@ -165,6 +168,7 @@ export function SearchView({ initial, source }: { initial?: string; source?: Sou
   const [filter, setFilter] = useState<Filter>(source ?? 'all')
   // Songs, or artists / playlists / profiles from the chosen platforms
   const [tab, setTab] = useState<'songs' | EntityKind>('songs')
+  const logo = useLogo()
   const [remote, setRemote] = useState<Partial<Record<SourceId, Remote>>>({})
   const [retry, setRetry] = useState(0)
   const tracks = useStore(lib, (s) => s.tracks)
@@ -186,7 +190,7 @@ export function SearchView({ initial, source }: { initial?: string; source?: Sou
   )
 
   useConnections()
-  const remoteSources = filter === 'all' ? streamingSources() : isStreaming(filter) ? [filter] : []
+  const remoteSources = filter === 'all' ? streamingSources() : filter !== 'projectm' && isStreaming(filter) ? [filter] : []
   const remoteKey = remoteSources.join(',')
 
   useEffect(() => {
@@ -205,6 +209,7 @@ export function SearchView({ initial, source }: { initial?: string; source?: Sou
   }, [query, remoteKey, retry])
 
   const showLocal = filter === 'all' || filter === 'local'
+  const people = filter === 'projectm'
 
   // Enter plays the first section that has results
   const firstResults = [...(showLocal ? [localSongs] : []), ...remoteSources.map((s) => remote[s]?.tracks ?? [])].find(
@@ -224,11 +229,19 @@ export function SearchView({ initial, source }: { initial?: string; source?: Sou
           <input
             autoFocus
             value={q}
-            placeholder={tab === 'songs' ? (filter === 'all' ? 'Songs, artists, albums' : `Search ${SOURCES[filter].name}`) : `Search ${ENTITY_TABS.find((t) => t.kind === tab)!.label.toLowerCase()}`}
+            placeholder={
+              people
+                ? 'People on ProjectM: @username or name'
+                : tab === 'songs'
+                  ? filter === 'all'
+                    ? 'Songs, artists, albums'
+                    : `Search ${SOURCES[filter as SourceId].name}`
+                  : `Search ${ENTITY_TABS.find((t) => t.kind === tab)!.label.toLowerCase()}`
+            }
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') setQ('')
-              if (e.key === 'Enter' && firstResults) playTracks(firstResults)
+              if (e.key === 'Enter' && firstResults && !people) playTracks(firstResults)
             }}
           />
           {q && (
@@ -252,7 +265,11 @@ export function SearchView({ initial, source }: { initial?: string; source?: Sou
               <SourceBadge source={s} size={14} /> {SOURCES[s].name}
             </button>
           ))}
+          <button className={cls('chip', people && 'on')} title="People on ProjectM" onClick={() => setFilter('projectm')}>
+            <img className="chip-logo" src={logo} alt="" /> ProjectM
+          </button>
         </div>
+        {!people && (
         <div className="chips tabs search-tabs">
           <button className={cls('chip', tab === 'songs' && 'on')} onClick={() => setTab('songs')}>
             Songs
@@ -263,9 +280,12 @@ export function SearchView({ initial, source }: { initial?: string; source?: Sou
             </button>
           ))}
         </div>
+        )}
       </div>
 
-      {tab !== 'songs' && tokens.length ? (
+      {people ? (
+        <PeopleResults query={query} />
+      ) : tab !== 'songs' && tokens.length ? (
         <EntityResults query={query} kind={tab} sources={remoteSources} />
       ) : !tokens.length ? (
         <Empty

@@ -19,6 +19,25 @@ export interface ProjectMAccountStatus {
   needsLogin?: boolean
   /** local songs passing between devices */
   relay?: { waitingForDevice: number; waitingForSpace: number; inTransitBytes: number; sending: number; receiving: number }
+  /** @username, display name and photo (a media://art/ address on this PC) */
+  profile?: LocalProfile
+}
+
+/** A profile ready to show: pictures are media://art/ addresses on this PC. Yours or someone else's. */
+export interface ShownProfile {
+  handle: string | null
+  displayName: string
+  avatar: string | null
+  banner: string | null
+  colors: [string, string] | null
+  bio: string
+  memberSince: number
+}
+
+/** Your own profile, plus the server hashes of your pictures (to notice changes). */
+export interface LocalProfile extends ShownProfile {
+  avatarHash: string | null
+  bannerHash: string | null
 }
 
 /** Reading and storing playlist cover images on this PC (media://art/...). */
@@ -57,6 +76,8 @@ export class AccountSync {
 
   /** settings, history, platform sign-ins and local songs (set by index.ts) */
   extras: AccountExtras | null = null
+  /** the last profile seen, so it shows straight away (also offline); set by index.ts */
+  profileFile: JsonFile<LocalProfile | null> | null = null
 
   setRelayStatus(relay: ProjectMAccountStatus['relay']) {
     this.set({ relay })
@@ -71,7 +92,102 @@ export class AccountSync {
   }
 
   async load() {
-    await Promise.all([this.deleted.load(), this.deviceFile.load(), this.coverMap.load(), this.extras?.load()])
+    await Promise.all([this.deleted.load(), this.deviceFile.load(), this.coverMap.load(), this.extras?.load(), this.profileFile?.load()])
+  }
+
+  // ---------- profile ----------
+
+  /** Fetches the account's profile and downloads changed pictures once. */
+  private async refreshProfile(s: AccountSession) {
+    const info = await account.accountInfo(s)
+    await this.applyProfile(s, info.profile)
+  }
+
+  private async applyProfile(s: AccountSession, p: account.Profile) {
+    const cur = this.status.profile
+    const picture = async (kind: account.ProfileImage) => {
+      const hash = p[kind]
+      if (!hash) return null
+      if (cur?.[`${kind}Hash`] === hash && cur[kind]) return cur[kind]
+      const got = await account.downloadProfileImage(s, kind, hash).catch(() => null)
+      return got ? this.covers.save(got.bytes, got.type) : null
+    }
+    const next: LocalProfile = {
+      handle: p.handle,
+      displayName: p.displayName,
+      colors: p.colors,
+      bio: p.bio,
+      memberSince: p.memberSince,
+      avatarHash: p.avatar,
+      avatar: await picture('avatar'),
+      bannerHash: p.banner,
+      banner: await picture('banner'),
+    }
+    if (JSON.stringify(next) !== JSON.stringify(cur)) {
+      this.profileFile?.set(next)
+      this.set({ profile: next })
+    }
+  }
+
+  handleAvailable(h: string) {
+    return account.handleAvailable(h)
+  }
+
+  async updateProfile(patch: { handle?: string; displayName?: string; colors?: [string, string] | null; bio?: string }) {
+    const s = this.need()
+    const p = await this.guard(account.updateProfile(s, patch))
+    await this.applyProfile(s, p)
+  }
+
+  /** New photo or banner (already shrunk to a JPEG). */
+  async setProfileImage(kind: account.ProfileImage, jpeg: Uint8Array) {
+    const s = this.need()
+    const hash = await this.guard(account.uploadProfileImage(s, kind, jpeg, 'image/jpeg'))
+    const local = await this.covers.save(jpeg, 'image/jpeg')
+    const next = { ...this.status.profile!, [kind]: local, [`${kind}Hash`]: hash }
+    this.profileFile?.set(next)
+    this.set({ profile: next })
+  }
+
+  async removeProfileImage(kind: account.ProfileImage) {
+    const s = this.need()
+    await this.guard(account.removeProfileImage(s, kind))
+    const next = { ...this.status.profile!, [kind]: null, [`${kind}Hash`]: null }
+    this.profileFile?.set(next)
+    this.set({ profile: next })
+  }
+
+  // ---------- other people (ProjectM search) ----------
+
+  /** pictures of other people already downloaded: hash -> media://art/ address */
+  private seen = new Map<string, string>()
+
+  private async shown(s: AccountSession, u: account.PublicProfile): Promise<ShownProfile> {
+    const picture = async (kind: account.ProfileImage) => {
+      const hash = u[kind]
+      if (!hash) return null
+      const known = this.seen.get(hash)
+      if (known) return known
+      const got = await account.downloadUserImage(s, u.handle, kind, hash).catch(() => null)
+      if (!got) return null
+      const local = await this.covers.save(got.bytes, got.type)
+      this.seen.set(hash, local)
+      return local
+    }
+    const [avatar, banner] = await Promise.all([picture('avatar'), picture('banner')])
+    return { handle: u.handle, displayName: u.displayName, colors: u.colors, bio: u.bio, memberSince: u.memberSince, avatar, banner }
+  }
+
+  /** People on ProjectM by @username or name (their photos only; banners load on their profile). */
+  async searchPeople(query: string): Promise<ShownProfile[]> {
+    const s = this.need()
+    const list = await this.guard(account.searchUsers(s, query))
+    return Promise.all(list.map((u) => this.shown(s, { ...u, banner: null })))
+  }
+
+  async person(handle: string): Promise<ShownProfile> {
+    const s = this.need()
+    return this.shown(s, await this.guard(account.getUser(s, handle)))
   }
 
   // ---------- covers picked from files ----------
@@ -136,7 +252,7 @@ export class AccountSync {
     if (raw) {
       try {
         this.session = JSON.parse(raw) as AccountSession
-        this.set({ loggedIn: true, email: this.session.email })
+        this.set({ loggedIn: true, email: this.session.email, profile: this.profileFile?.get() ?? undefined })
         this.syncNow()
       } catch {
         // unreadable: stay logged out
@@ -171,8 +287,8 @@ export class AccountSync {
 
   // ---------- account actions (from Settings → Account) ----------
 
-  async signUp(email: string, password: string) {
-    const { session, recoveryCode } = await account.signUp(email, password, this.device())
+  async signUp(email: string, password: string, handle: string, displayName: string) {
+    const { session, recoveryCode } = await account.signUp(email, password, this.device(), { handle, displayName })
     await this.begin(session)
     return { recoveryCode }
   }
@@ -213,7 +329,8 @@ export class AccountSync {
     const s = this.session
     this.session = null
     await this.secrets.set(SESSION, undefined)
-    this.set({ loggedIn: false, email: undefined, syncing: false, lastSync: undefined, error: undefined, needsLogin: false, relay: undefined })
+    this.set({ loggedIn: false, email: undefined, syncing: false, lastSync: undefined, error: undefined, needsLogin: false, relay: undefined, profile: undefined })
+    this.profileFile?.set(null)
     await this.extras?.forgetAccountSignIns()
     if (s) await account.logOut(s)
   }
@@ -310,6 +427,7 @@ export class AccountSync {
       // something newer than what was uploaded: send it next round
       if (m.upload) this.again = true
       if (this.extras) await this.guard(this.extras.sync(s))
+      await this.guard(this.refreshProfile(s))
       this.set({ syncing: false, lastSync: Date.now(), error: undefined })
     } catch (e) {
       if (this.session) this.set({ syncing: false, error: (e as Error).message })
