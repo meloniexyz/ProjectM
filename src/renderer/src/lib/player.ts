@@ -13,6 +13,8 @@ export interface QueueItem {
   /** unique per queue entry, so the same song can be queued twice */
   key: number
   track: Track
+  /** added with "Add to queue" / "Play next": plays before the rest, like Spotify's "Next in queue" */
+  queued?: true
 }
 export type Repeat = 'off' | 'all' | 'one'
 
@@ -568,13 +570,29 @@ export function playTracks(tracks: Track[], start = 0, shuffle = state.shuffle) 
     items = [items[index], ...shuffled(items.filter((_, i) => i !== index))]
     index = 0
   }
+  // like Spotify, songs you queued still come next when you start something else
+  const waiting = pendingQueued()
+  if (waiting.length) items = [...items.slice(0, index + 1), ...waiting, ...items.slice(index + 1)]
   emit({ queue: items, index, shuffle })
   load(true)
 }
 
+/** Queued songs still waiting after the current one. */
+function pendingQueued() {
+  const out: QueueItem[] = []
+  for (let i = state.index + 1; i < state.queue.length && state.queue[i]!.queued; i++) out.push(state.queue[i]!)
+  return out
+}
+
+/** Where "Add to queue" puts songs: after the songs already queued, before the rest (first added plays first). */
+const queueEnd = () => state.index + 1 + pendingQueued().length
+
+const wrapQueued = (tracks: Track[]): QueueItem[] => wrap(tracks).map((q) => ({ ...q, queued: true as const }))
+
+/** Plays these right after the current song, ahead of anything queued before. */
 export function playNext(tracks: Track[]) {
   if (!state.queue.length) return playTracks(tracks)
-  const items = wrap(tracks)
+  const items = wrapQueued(tracks)
   const queue = state.queue.slice()
   queue.splice(state.index + 1, 0, ...items)
   if (original) {
@@ -584,11 +602,20 @@ export function playNext(tracks: Track[]) {
   emit({ queue })
 }
 
+/** Spotify's "Add to queue": after the current song and anything queued before it, in the order added. */
 export function addToQueue(tracks: Track[]) {
-  const items = wrap(tracks)
-  original?.push(...items)
-  if (!state.queue.length) emit({ queue: items, index: 0, duration: items[0]?.track.duration ?? 0 })
-  else emit({ queue: [...state.queue, ...items] })
+  const items = wrapQueued(tracks)
+  if (!state.queue.length) return emit({ queue: items, index: 0, duration: items[0]?.track.duration ?? 0 })
+  const end = queueEnd()
+  if (original) {
+    // un-shuffling keeps them in the same spot: after the current song's queued ones
+    const before = state.queue[end - 1]
+    const at = original.findIndex((q) => q.key === before?.key)
+    original.splice(at + 1, 0, ...items)
+  }
+  const queue = state.queue.slice()
+  queue.splice(end, 0, ...items)
+  emit({ queue })
 }
 
 export function jump(index: number) {
@@ -676,8 +703,10 @@ export function toggleShuffle() {
   } else {
     // keep what already played in place, shuffle only what's coming up
     original = state.queue.slice()
-    const upcoming = shuffled(state.queue.slice(state.index + 1))
-    emit({ queue: [...state.queue.slice(0, state.index + 1), ...upcoming], shuffle: true })
+    // queued songs keep their place and order; only the rest is shuffled
+    const end = queueEnd()
+    const upcoming = shuffled(state.queue.slice(end))
+    emit({ queue: [...state.queue.slice(0, end), ...upcoming], shuffle: true })
   }
 }
 

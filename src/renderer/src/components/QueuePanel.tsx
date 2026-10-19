@@ -35,14 +35,13 @@ export function QueuePanel({ onClose }: { onClose: () => void }) {
           <>
             <div className="q-label">Now playing</div>
             <Item item={now} now playing={playing} />
-            {upcoming.length > 0 && <div className="q-label">Next up</div>}
+            {/* like Spotify: what you queued first (in the order added), then the rest */}
             {upcoming.map((item, j) => (
-              <Item
-                key={item.key}
-                item={item}
-                onClick={() => jump(index + 1 + j)}
-                onRemove={() => removeAt(index + 1 + j)}
-              />
+              <div key={item.key}>
+                {j === 0 && <div className="q-label">{item.queued ? 'Next in queue' : 'Next up'}</div>}
+                {j > 0 && !item.queued && upcoming[j - 1]!.queued && <div className="q-label">Next up</div>}
+                <Item item={item} onClick={() => jump(index + 1 + j)} onRemove={() => removeAt(index + 1 + j)} />
+              </div>
             ))}
             {hidden > 0 && <div className="q-more">and {plural(hidden, 'more song')}</div>}
           </>
